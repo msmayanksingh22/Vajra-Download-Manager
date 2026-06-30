@@ -1,0 +1,29 @@
+{
+	"name": "Project Vajra",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/rust:1": {
+			"version": "latest",
+			"profile": "minimal"
+		},
+		"ghcr.io/devcontainers/features/node:1": {
+			"version": "20",
+			"pnpmVersion": "latest"
+		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"rust-lang.rust-analyzer",
+				"tamasfe.even-better-toml",
+				"dbaeumer.vscode-eslint",
+				"esbenp.prettier-vscode",
+				"tauri-apps.tauri-vscode"
+			]
+		}
+	},
+	"remoteUser": "vscode",
+	"postCreateCommand": "npm install && cargo build"
+}

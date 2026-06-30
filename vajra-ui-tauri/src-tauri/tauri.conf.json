@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Vajra",
+  "version": "0.2.0",
+  "identifier": "com.vajra.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "echo \"NOTE: Build sidecar skipped - use dev.bat to build and copy the daemon binary\" && npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Vajra",
+        "width": 960,
+        "height": 640,
+        "minWidth": 700,
+        "minHeight": 440,
+        "decorations": false,
+        "transparent": false,
+        "center": true,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:*; img-src 'self' data: asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [
+      "bin/vajrad"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "template": "installer.nsi"
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [],
+      "desktop": {
+        "schemes": ["vajra"]
+      }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/msmayanksingh22/Project-Vajra/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzOTVBQjJEMENEQjU0NTcKUldSWFZOc01MYXVWNHlQdVRZRmpzRlJSMWU5OWx1bVZDM0FiYUNHalBJQVFTUmxneVVIblQyWnQK"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "toolbar": {
+    "aria_label": "アプリケーションツールバー",
+    "add_url": "URLを追加",
+    "resume": "再開",
+    "pause": "一時停止",
+    "stop_all": "すべて停止",
+    "delete": "削除",
+    "clear_completed": "完了したタスクをクリア",
+    "settings": "設定",
+    "scheduler": "スケジューラ",
+    "grabber": "グラバー",
+    "spider": "スパイダー",
+    "properties": "プロパティ",
+    "progress": "進捗",
+    "help": "ヘルプ"
+  }
+}

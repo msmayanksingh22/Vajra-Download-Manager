@@ -1,0 +1,111 @@
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# Rust build artifacts (LARGE — never commit)
+target/
+target_old/
+target_test/
+target_build/
+
+# Compiled binaries & debug symbols
+*.exe
+*.pdb
+*.d
+*.rlib
+
+# Tauri / Cargo generated
+.cargo/
+
+# Runtime data (user-specific, not source)
+vajra.db
+vajra.db-shm
+vajra.db-wal
+daemon.log
+config_out.txt
+downloads/
+
+# Test artifacts
+test_dir/
+test_dir2/
+test_dir_pause/
+test_exp*
+
+# Dev-only scripts and scratch files
+fix_buttons.js
+fix_inputs.js
+fix_windows.js
+dump_settings.py
+qa_test.py
+fix.py
+add_paths.py
+patch_handlers.py
+refactor_app.py
+refactor_queue.py
+temp.rs
+*.dev.js
+*.scratch.*
+
+# Dev configuration overrides
+config2.json
+config3.json
+test.json
+headers.json
+
+# AI IDE directories (not relevant to contributors)
+.agent/
+.agents/
+.gemini/
+.claude/
+.mcp.json
+CLAUDE.md
+graphify-out/
+.cursor/
+.cline/
+
+# Reference / internal assets used during design (not for end users)
+IDM-Images/
+instruct.txt
+ard.txt
+openspec/
+
+# Installer artifacts (binaries — source files like .wxs, .ps1 are kept)
+installer/*.msi
+installer/*.wixpdb
+installer/.wix/
+*.deb
+*.rpm
+*.appimage
+*.dmg
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Tauri mobile build artifacts
+gen/android/
+gen/ios/

@@ -1,0 +1,12 @@
+[Unit]
+Description=Vajra Download Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vajrad
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

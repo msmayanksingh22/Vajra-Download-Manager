@@ -1,0 +1,18 @@
+{
+  "toolbar": {
+    "aria_label": "应用工具栏",
+    "add_url": "添加网址",
+    "resume": "恢复",
+    "pause": "暂停",
+    "stop_all": "全部停止",
+    "delete": "删除",
+    "clear_completed": "清除已完成",
+    "settings": "设置",
+    "scheduler": "计划任务",
+    "grabber": "嗅探器",
+    "spider": "蜘蛛",
+    "properties": "属性",
+    "progress": "进度",
+    "help": "帮助"
+  }
+}

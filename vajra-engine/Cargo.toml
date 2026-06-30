@@ -1,0 +1,88 @@
+[package]
+name    = "vajra-engine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name      = "vajra_engine"
+crate-type = ["rlib"]
+
+[dependencies]
+# Async runtime
+tokio        = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "signal", "sync", "time", "fs", "process"] }
+tokio-util   = { version = "0.7", features = ["compat"] }
+futures      = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+
+# HTTP client — http2 enables multiplexed connections on H2 servers
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "http2", "http3", "multipart", "socks"] }
+
+# Byte buffers
+bytes = "1"
+
+# Serialization (for state files and DB)
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# SQLite for history + settings
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Timestamps
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID for download IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Error ergonomics
+thiserror = "1"
+anyhow    = "1"
+
+# Logging
+tracing = "0.1"
+
+# Default download directory
+dirs-next = "2"
+vajra-protocol = { path = "../vajra-protocol" }
+sha2 = "0.11.0"
+md-5 = "0.11.0"
+hex = "0.4.3"
+zip = "8.6.0"
+librqbit = "8.1.1"
+urlencoding = "2.1.3"
+sevenz-rust = "0.6.1"
+unrar = "0.5"
+suppaftp = { version = "6.0", features = ["async", "async-rustls"] }
+url = "2.5"
+regex = "1.12.4"
+base64 = "0.22"
+libc = "0.2"
+indexmap = "2"
+quick-xml = "0.36"
+aws-config = "1.5.0"
+aws-sdk-s3 = "1.34.0"
+extism = "1.6"
+infer = "0.15"
+
+# Vault encryption
+chacha20poly1305 = "0.10"
+rand = "0.8"
+keyring = "3"
+sysinfo = "0.39.5"
+
+# Windows OS APIs for allocator
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Memory",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio    = { version = "1", features = ["rt", "macros"] }
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "chunk_bench"
+harness = false

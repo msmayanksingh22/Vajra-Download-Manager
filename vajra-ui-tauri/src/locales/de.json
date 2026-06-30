@@ -1,0 +1,18 @@
+{
+  "toolbar": {
+    "aria_label": "Anwendungs-Symbolleiste",
+    "add_url": "URL hinzufügen",
+    "resume": "Fortsetzen",
+    "pause": "Pausieren",
+    "stop_all": "Alle stoppen",
+    "delete": "Löschen",
+    "clear_completed": "Abgeschlossene entfernen",
+    "settings": "Einstellungen",
+    "scheduler": "Zeitplaner",
+    "grabber": "Grabber",
+    "spider": "Spider",
+    "properties": "Eigenschaften",
+    "progress": "Fortschritt",
+    "help": "Hilfe"
+  }
+}

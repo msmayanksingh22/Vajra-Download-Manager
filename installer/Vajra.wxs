@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Vajra Download Manager — WiX 4 Installer
+    Build via: .\installer\build_msi.ps1
+    (The script generates VajraFiles.wxs alongside this file automatically)
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package
+    Name="Vajra Download Manager"
+    Manufacturer="Vajra Project"
+    Version="$(var.Version)"
+    UpgradeCode="A4B7D23F-1E8C-4F3A-B9C5-2E6D7A8F9B01"
+    Language="1033"
+    Codepage="1252"
+    InstallerVersion="500"
+    Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Vajra is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- UI -->
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+
+    <!-- Custom UI Banners -->
+    <WixVariable Id="WixUIDialogBmp" Value="Binary\dialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="Binary\banner.bmp" />
+
+    <!-- Properties -->
+    <Property Id="ARPURLINFOABOUT"  Value="https://github.com/vajra-project" />
+    <Property Id="ARPNOREPAIR"      Value="1" />
+    <Property Id="ARPPRODUCTICON"   Value="VajraIcon" />
+    <Icon     Id="VajraIcon" SourceFile="..\vajra-ui-tauri\src-tauri\icons\icon.ico" />
+
+    <!-- Directories -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLDIR" Name="Vajra" />
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="VajraMenuDir" Name="Vajra Download Manager" />
+    </StandardDirectory>
+
+    <!-- Feature -->
+    <Feature Id="MainFeature" Title="Vajra Download Manager" Level="1">
+      <!-- All app DLLs and files (harvested dynamically by build_msi.ps1) -->
+      <ComponentGroupRef Id="AllAppFiles" />
+      <!-- Shortcuts and registry -->
+      <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="RegistryEntries" />
+    </Feature>
+
+    <!-- Desktop Shortcuts -->
+    <Component Id="DesktopShortcut" Guid="A6B7C8D9-E0F1-4A2B-3C4D-5E6F7A8B9C0D" Directory="DesktopFolder">
+      <Shortcut Id="DesktopLink"
+                Name="Vajra Download Manager"
+                Description="Blazing-fast multi-segment download manager"
+                Target="[INSTALLDIR]vajra-ui-tauri.exe"
+                WorkingDirectory="INSTALLDIR"
+                Icon="VajraIcon" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\Vajra\InstallState"
+                     Name="DesktopShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Start Menu Shortcut -->
+    <Component Id="StartMenuShortcut" Guid="B7C8D9E0-F1A2-4B3C-4D5E-6F7A8B9C0D1E" Directory="VajraMenuDir">
+      <Shortcut Id="StartMenuLink"
+                Name="Vajra Download Manager"
+                Description="Blazing-fast multi-segment download manager"
+                Target="[INSTALLDIR]vajra-ui-tauri.exe"
+                WorkingDirectory="INSTALLDIR"
+                Icon="VajraIcon" />
+      <RemoveFolder Id="CleanMenuDir" Directory="VajraMenuDir" On="uninstall" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\Vajra\InstallState"
+                     Name="StartMenuShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Registry Entries -->
+    <Component Id="RegistryEntries" Guid="C8D9E0F1-A2B3-4C4D-5E6F-7A8B9C0D1E2F" Directory="INSTALLDIR">
+
+      <!-- Startup — minimized to tray -->
+      <RegistryValue Root="HKCU"
+                     Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                     Name="VajraDownloadManager"
+                     Type="string"
+                     Value="&quot;[INSTALLDIR]vajra-ui-tauri.exe&quot; --minimized" />
+
+      <!-- Sentinel keypath -->
+      <RegistryValue Root="HKCU"
+                     Key="Software\Vajra\InstallState"
+                     Name="Installed"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+  </Package>
+</Wix>

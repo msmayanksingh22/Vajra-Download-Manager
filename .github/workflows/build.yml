@@ -1,0 +1,107 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  rust-quality:
+    name: Rust Quality & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        
+      - name: Rustfmt Check
+        run: cargo fmt --all -- --check
+        
+      - name: Clippy Check
+        run: cargo clippy --workspace -- -D warnings
+        
+      - name: Security and License Audit (cargo deny)
+        run: cargo deny check
+        
+      - name: Run Tests
+        run: cargo test --workspace
+
+  frontend-quality:
+    name: Frontend Quality & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: vajra-ui-tauri/package-lock.json
+          
+      - name: Install Dependencies
+        working-directory: ./vajra-ui-tauri
+        run: npm ci
+
+      - name: ESLint Check
+        working-directory: ./vajra-ui-tauri
+        run: npm run lint
+
+      - name: Prettier Check
+        working-directory: ./vajra-ui-tauri
+        run: npm run format:check
+
+  build-tauri:
+    name: Build Tauri Apps
+    needs: [rust-quality, frontend-quality]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: ubuntu-latest
+          - os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: -> target
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Install Dependencies (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+          
+      - name: Install frontend dependencies
+        working-directory: ./vajra-ui-tauri
+        run: npm install
+
+      - name: Build Vajra Daemon sidecar
+        shell: bash
+        run: |
+          cargo build --release --bin vajrad
+          mkdir -p vajra-ui-tauri/src-tauri/bin
+          TARGET=$(rustc -vV | sed -n 's|host: ||p')
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cp target/release/vajrad.exe vajra-ui-tauri/src-tauri/bin/vajrad-${TARGET}.exe
+          else
+            cp target/release/vajrad vajra-ui-tauri/src-tauri/bin/vajrad-${TARGET}
+          fi
+
+      - name: Build Tauri
+        working-directory: ./vajra-ui-tauri
+        run: npm run tauri build
+

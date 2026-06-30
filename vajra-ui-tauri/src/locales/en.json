@@ -1,0 +1,24 @@
+{
+  "app": {
+    "title": "Vajra"
+  },
+  "add_url": {
+    "title": "Add Download",
+    "url_placeholder": "https://... or magnet:?...",
+    "filename_placeholder": "Auto-detect filename",
+    "add_button": "Add Download",
+    "advanced_options": "Advanced Options",
+    "batch_mode": "Batch Download Detected",
+    "batch_description": "You have entered multiple URLs. Vajra will download them as separate tasks.",
+    "connections": "Connections",
+    "speed_limit": "Speed Limit",
+    "output_dir": "Output Directory",
+    "start_later": "Start Later",
+    "auto_extract": "Auto Extract",
+    "script": "Post-processing Script"
+  },
+  "settings": {
+    "title": "Settings",
+    "theme": "Theme"
+  }
+}

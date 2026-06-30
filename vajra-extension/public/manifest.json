@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Vajra Download Manager",
+  "version": "1.0.0",
+  "description": "Intercepts browser downloads and routes them to the Vajra Download Manager.",
+  "permissions": [
+    "downloads",
+    "storage",
+    "contextMenus",
+    "notifications",
+    "cookies",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1:6277/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "icons": {
+    "16": "logo.png",
+    "32": "logo.png",
+    "64": "logo.png",
+    "128": "logo.png"
+  },
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "Vajra Download Manager",
+    "default_icon": {
+      "16": "logo.png",
+      "32": "logo.png",
+      "64": "logo.png",
+      "128": "logo.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

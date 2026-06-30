@@ -1,0 +1,83 @@
+[package]
+name    = "vajra-daemon"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+
+[[bin]]
+name = "vajrad"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "fs", "process", "net", "rt"] }
+
+# HTTP server
+axum        = { version = "0.7", features = ["macros", "ws", "multipart"] }
+tower       = { version = "0.4" }
+tower-http   = { version = "0.5", features = ["cors", "trace"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+
+# HTTP client (for /inspect endpoint)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Database error type
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Serialization
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+
+# Error handling
+anyhow  = "1"
+thiserror = "1"
+
+# Logging
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+uuid     = { version = "1", features = ["serde", "v4"] }
+chrono   = { version = "0.4", features = ["serde"] }
+dirs-next = "2"
+tokio-util = { version = "0.7" }
+
+# Internal crates
+vajra-engine   = { path = "../vajra-engine" }
+vajra-protocol = { path = "../vajra-protocol" }
+regex = "1.12.4"
+url = "2.5.8"
+scraper = "0.20"
+percent-encoding = "2.3.2"
+zip = "8.6.0"
+sevenz-rust = "0.6.1"
+base64 = "0.22.1"
+utoipa = { version = "4", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }
+hmac = "0.13.0"
+sha2 = "0.11.0"
+hex = "0.4.3"
+sysinfo = "0.39.5"
+dav-server = "0.11.0"
+axum-server = { version = "0.8.0", features = ["tls-rustls"] }
+rss = "2.0.13"
+
+# Windows-specific: sleep prevention
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = ["Win32_System_Power", "Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging"] }
+
+[package.metadata.deb]
+maintainer = "Vajra Maintainers <vajra@example.com>"
+copyright = "2024, Vajra Maintainers"
+extended-description = """
+Vajra daemon background service.
+A highly concurrent multi-part download manager.
+"""
+depends = "$auto"
+section = "net"
+priority = "optional"
+assets = [
+    ["target/release/vajrad", "usr/bin/", "755"],
+    ["vajra-daemon.service", "usr/lib/systemd/user/", "644"],
+]
