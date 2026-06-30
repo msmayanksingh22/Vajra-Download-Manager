@@ -55,7 +55,7 @@
     },
     "updater": {
       "endpoints": [
-        "https://github.com/msmayanksingh22/Project-Vajra/releases/latest/download/latest.json"
+        "https://github.com/msmayanksingh22/Vajra-Download-Manager/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzOTVBQjJEMENEQjU0NTcKUldSWFZOc01MYXVWNHlQdVRZRmpzRlJSMWU5OWx1bVZDM0FiYUNHalBJQVFTUmxneVVIblQyWnQK"
     }
