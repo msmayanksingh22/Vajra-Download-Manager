@@ -1,54 +1,49 @@
-<p align="center">
-  <img src="logo.png" alt="Vajra Logo" width="480"/>
-</p>
+<div align="center">
+  <img src="logo.png" alt="Vajra Logo" width="300"/>
 
-<p align="center">
-  <strong>The high-performance, developer-first download manager. Headless-capable, API-driven, and built in Rust + React.</strong>
-</p>
+  <h1>Vajra Download Manager</h1>
+  <p><strong>The high-performance, developer-first download manager.<br>Headless-capable, API-driven, and built with Rust + Tauri.</strong></p>
 
-<p align="center">
-  <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/actions/workflows/build.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/msmayanksingh22/Vajra-Download-Manager/build.yml?branch=main&style=for-the-badge&logo=github&color=31c754" alt="Build Status" />
-  </a>
-  <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/msmayanksingh22/Vajra-Download-Manager?style=for-the-badge&color=238636" alt="License" />
-  </a>
-  <a href="https://rustup.rs">
-    <img src="https://img.shields.io/badge/rust-1.75%2B-orange?style=for-the-badge&logo=rust" alt="Rust Version" />
-  </a>
-  <a href="https://tauri.app">
-    <img src="https://img.shields.io/badge/tauri-v2-blue?style=for-the-badge&logo=tauri" alt="Tauri v2" />
-  </a>
-</p>
+  <p>
+    <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/actions/workflows/build.yml">
+      <img src="https://img.shields.io/github/actions/workflow/status/msmayanksingh22/Vajra-Download-Manager/build.yml?branch=main&style=for-the-badge&logo=github&color=31c754" alt="Build Status" />
+    </a>
+    <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/blob/main/LICENSE">
+      <img src="https://img.shields.io/github/license/msmayanksingh22/Vajra-Download-Manager?style=for-the-badge&color=238636" alt="License" />
+    </a>
+    <a href="https://rustup.rs">
+      <img src="https://img.shields.io/badge/rust-1.75%2B-orange?style=for-the-badge&logo=rust" alt="Rust Version" />
+    </a>
+    <a href="https://tauri.app">
+      <img src="https://img.shields.io/badge/tauri-v2-blue?style=for-the-badge&logo=tauri" alt="Tauri v2" />
+    </a>
+  </p>
+</div>
+
+<br />
+
+Welcome to **Vajra**, a next-generation download manager engineered for ultimate speed, system efficiency, and developer extensibility. 
+
+Whether you need a blazing-fast UI for your daily downloads or a headless daemon to integrate into your backend services, Vajra delivers.
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-### ⚡ Parallel Download Multiplexing
-Vajra splits files into byte-range segments using concurrent HTTP requests, achieving download speeds up to **10x faster** than standard browser downloaders.
-
-### 🧠 Connection Stealing
-If a connection thread finishes its segment early, the multiplexer dynamically splits the remaining portion of the slowest active segment and reassigns it, ensuring zero idle workers.
-
-### 💾 OS-Level Pre-allocation
-Saves write operations and avoids disk fragmentation using native OS APIs to pre-allocate file structures instantly:
-*   **Windows**: NTFS `SetEndOfFile` + `SetFileValidData` (bypasses zero-filling).
-*   **Linux**: `fallocate(2)`.
-*   **macOS**: `F_PREALLOCATE` `fcntl` + `ftruncate`.
-
-### 🚀 Zero-Copy Memory Mapping
-Leverages memory-mapped file handles (`mmap` / `CreateFileMappingW`) to map download files into virtual memory. Network packages are written directly to disk positions, bypassing traditional user-space buffering.
-
-### 🔒 Integrated VPN Kill Switch
-Protects your identity. The daemon continuously monitors system interfaces; if your VPN connection drops, active downloads are immediately paused.
-
-### 🌐 Smart Browser Interception & Batch Capture
-Integrated Chrome/Edge Manifest V3 extension intercepts native browser downloads, sniffs HLS/DASH media streams, and triggers a batch capture overlay by holding the `Alt` key.
+| Feature | Description |
+| :--- | :--- |
+| **⚡ Parallel Multiplexing** | Splits files into byte-range segments using concurrent HTTP requests, achieving speeds up to **10x faster** than standard browser downloaders. |
+| **🧠 Connection Stealing** | Dynamically reassigns idle connection threads to assist the slowest active segment, ensuring zero idle workers. |
+| **💾 OS-Level Pre-allocation** | Bypasses zero-filling by using native OS APIs (`SetEndOfFile`, `fallocate`, `fcntl`) to pre-allocate file structures instantly. |
+| **🚀 Zero-Copy Memory Mapping** | Leverages memory-mapped file handles to write network packages directly to disk positions, bypassing traditional user-space buffering. |
+| **🔒 Integrated VPN Kill Switch** | Continuously monitors system interfaces and automatically pauses active downloads if your VPN connection drops. |
+| **🌐 Smart Browser Interception** | Integrated Chrome/Edge Manifest V3 extension intercepts native downloads, sniffs media streams, and captures batches. |
 
 ---
 
 ## 🏗️ Architecture
+
+Vajra employs a decoupled architecture separating the high-speed Rust engine from the React/Tauri frontend.
 
 ```mermaid
 flowchart LR
@@ -88,13 +83,13 @@ flowchart LR
 
 Vajra is organized as a modular Rust Cargo workspace:
 
-*   **`vajra-engine`**: High-performance multi-threaded core (throttling, multiplexing, sparse allocation, mmap).
-*   **`vajra-daemon`**: Axum-based server managing queue schedules, RSS feeds, WebDAV files, and webhook integrations.
-*   **`vajra-protocol`**: Unified serialization protocols and type mappings shared between clients and daemon.
-*   **`vajra-cli`**: Clap-based CLI client with full IDM command parameter mapping.
-*   **`vajra-ui-tauri`**: React-based desktop control center wrapping the daemon sidecar.
-*   **`vajra-extension`**: Chrome Manifest V3 sniffer extension.
-*   **`vajra-mobile`**: React Native (Expo) companion application.
+- **`vajra-engine`**: High-performance multi-threaded core (throttling, multiplexing, sparse allocation, mmap).
+- **`vajra-daemon`**: Axum-based server managing queue schedules, RSS feeds, WebDAV files, and webhook integrations.
+- **`vajra-protocol`**: Unified serialization protocols and type mappings shared between clients and daemon.
+- **`vajra-cli`**: Clap-based CLI client with full IDM command parameter mapping.
+- **`vajra-ui-tauri`**: React-based desktop control center wrapping the daemon sidecar.
+- **`vajra-extension`**: Chrome Manifest V3 sniffer extension.
+- **`vajra-mobile`**: React Native (Expo) companion application.
 
 ---
 
@@ -102,11 +97,11 @@ Vajra is organized as a modular Rust Cargo workspace:
 
 ### Prerequisites
 
-*   [Rust stable](https://rustup.rs)
-*   [Node.js 18+](https://nodejs.org)
-*   [VS Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) (with "Desktop development with C++" workload)
+- [Rust stable](https://rustup.rs) (1.75+)
+- [Node.js 18+](https://nodejs.org)
+- [VS Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) (Windows only, with "Desktop development with C++")
 
-### Build the Workspace
+### Build & Launch
 
 Run the root build script to compile the backend crates and frontend targets automatically:
 
@@ -114,43 +109,43 @@ Run the root build script to compile the backend crates and frontend targets aut
 build-all.bat
 ```
 
-### Launching Vajra
+To launch the desktop application:
 
 ```bat
 vajra.bat
 ```
 
-The desktop app will launch and start the background daemon automatically. If you close the main window, the application continues to run in the Windows system tray.
+> **Note:** The desktop app starts the background daemon automatically. If you close the main window, the application will minimize to the system tray.
 
 ### Browser Extension Setup
 
 1. Open `chrome://extensions` in Chrome/Edge.
 2. Enable **Developer Mode**.
-3. Click **Load unpacked** and select the `vajra-extension/` directory (or load the `dist/` directory after running `npm run build` inside the extension directory).
-4. Select the extension, and click **Launch Vajra** if the daemon is offline.
+3. Click **Load unpacked** and select the `vajra-extension/` directory. *(For production, load the `dist/` directory after running `npm run build` inside the extension folder).*
+4. Click the extension icon and select **Launch Vajra** if the daemon is offline.
 
 ---
 
 ## 🔌 API Reference
 
-Base REST Endpoints (`http://127.0.0.1:6277/api/v1`):
+Vajra's headless capabilities are powered by a REST API accessible at `http://127.0.0.1:6277/api/v1`:
 
-*   `GET /health` — Daemon health check
-*   `GET /downloads` — List all downloads
-*   `POST /downloads` — Create a new download task
-*   `PATCH /downloads/:id` — Pause/resume/cancel a download
-*   `GET /stats` — Live global queue throughput and speed stats
-*   `GET /events` — Real-time progress update SSE event stream
+- `GET /health` — Daemon health check
+- `GET /downloads` — List all active and completed downloads
+- `POST /downloads` — Submit a new download task
+- `PATCH /downloads/:id` — Control task state (pause/resume/cancel)
+- `GET /stats` — Live global queue throughput and speed statistics
+- `GET /events` — Real-time progress updates via Server-Sent Events (SSE)
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions of all sizes! Check out our [Contributing Guide](CONTRIBUTING.md) to get started.
+We welcome contributions of all sizes! Check out our [Contributing Guide](CONTRIBUTING.md) to get started with the development workflow, coding standards, and PR process.
 
 ---
 
 ## 🛡️ License & Security
 
-*   Vajra is open source under the [GPL-3.0 License](LICENSE).
-*   Please review our [Security Policy](SECURITY.md) to report vulnerabilities privately.
+- **License:** Vajra is open source and available under the [GPL-3.0 License](LICENSE).
+- **Security:** Please review our [Security Policy](SECURITY.md) to report vulnerabilities privately.
