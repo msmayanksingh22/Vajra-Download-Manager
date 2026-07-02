@@ -1,32 +1,82 @@
-# ⚡ Vajra Download Manager
+<p align="center">
+  <img src="logo.png" alt="Vajra Logo" width="480"/>
+</p>
 
-A high-performance, developer-first download manager. Headless-capable, API-driven, and built entirely in Rust + React.
+<p align="center">
+  <strong>The high-performance, developer-first download manager. Headless-capable, API-driven, and built in Rust + React.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/actions/workflows/build.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/msmayanksingh22/Vajra-Download-Manager/build.yml?branch=main&style=for-the-badge&logo=github&color=31c754" alt="Build Status" />
+  </a>
+  <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/msmayanksingh22/Vajra-Download-Manager?style=for-the-badge&color=238636" alt="License" />
+  </a>
+  <a href="https://rustup.rs">
+    <img src="https://img.shields.io/badge/rust-1.75%2B-orange?style=for-the-badge&logo=rust" alt="Rust Version" />
+  </a>
+  <a href="https://tauri.app">
+    <img src="https://img.shields.io/badge/tauri-v2-blue?style=for-the-badge&logo=tauri" alt="Tauri v2" />
+  </a>
+</p>
+
+---
+
+## ✨ Features
+
+### ⚡ Parallel Download Multiplexing
+Vajra splits files into byte-range segments using concurrent HTTP requests, achieving download speeds up to **10x faster** than standard browser downloaders.
+
+### 🧠 Connection Stealing
+If a connection thread finishes its segment early, the multiplexer dynamically splits the remaining portion of the slowest active segment and reassigns it, ensuring zero idle workers.
+
+### 💾 OS-Level Pre-allocation
+Saves write operations and avoids disk fragmentation using native OS APIs to pre-allocate file structures instantly:
+*   **Windows**: NTFS `SetEndOfFile` + `SetFileValidData` (bypasses zero-filling).
+*   **Linux**: `fallocate(2)`.
+*   **macOS**: `F_PREALLOCATE` `fcntl` + `ftruncate`.
+
+### 🚀 Zero-Copy Memory Mapping
+Leverages memory-mapped file handles (`mmap` / `CreateFileMappingW`) to map download files into virtual memory. Network packages are written directly to disk positions, bypassing traditional user-space buffering.
+
+### 🔒 Integrated VPN Kill Switch
+Protects your identity. The daemon continuously monitors system interfaces; if your VPN connection drops, active downloads are immediately paused.
+
+### 🌐 Smart Browser Interception & Batch Capture
+Integrated Chrome/Edge Manifest V3 extension intercepts native browser downloads, sniffs HLS/DASH media streams, and triggers a batch capture overlay by holding the `Alt` key.
 
 ---
 
 ## 🏗️ Architecture
 
 ```mermaid
-flowchart TD
+flowchart LR
+    classDef main fill:#1f2937,stroke:#3b82f6,stroke-width:2px,color:#fff;
+    classDef ext fill:#1e1b4b,stroke:#818cf8,stroke-width:1px,color:#fff;
+    classDef engine fill:#111827,stroke:#10b981,stroke-width:2px,color:#fff;
+    classDef db fill:#374151,stroke:#9ca3af,stroke-width:1px,color:#fff;
+
     subgraph Browser["Web Browser"]
-        Ext["Vajra Chrome Extension"]
+        Ext["Vajra Chrome Extension"]:::ext
     end
 
-    subgraph DesktopApp["Tauri Desktop App (React)"]
-        UI["React Frontend"]
-        Tauri["Tauri Rust Backend"]
+    subgraph DesktopApp["Tauri Desktop (React)"]
+        UI["React Frontend"]:::main
+        Tauri["Tauri Shell"]:::main
     end
 
     subgraph Service["Background Daemon (vajrad)"]
-        Api["Axum REST API (Port 6277)"]
-        Queue["Fair Access Priority Queue"]
-        Engine["Vajra Multi-Threaded Engine"]
-        DB[("SQLite State Store")]
+        Api["Axum REST API"]:::engine
+        Queue["Fair Access Queue"]:::engine
+        Engine["Multi-Threaded Engine"]:::engine
     end
 
-    Ext -->|HTTP POST /api/v1/intercept| Api
-    UI -->|Local API Queries| Api
-    Tauri -->|Launches Sidecar & Relays SSE| Api
+    DB[("SQLite State Store")]:::db
+
+    Ext -->|POST /api/v1/intercept| Api
+    UI -->|REST Queries / SSE| Api
+    Tauri -->|Launches Sidecar| Api
     Api --> Queue
     Queue --> Engine
     Engine --> DB
@@ -34,136 +84,73 @@ flowchart TD
 
 ---
 
-## 📦 Workspace Crates
+## 📦 Workspace Structure
 
-| Crate | Type | Purpose |
-|-------|------|---------|
-| `vajra-engine` | Library | Core download engine (HTTP/2, multi-segment, thread stealing, resume, retry, throttle). |
-| `vajra-daemon` | Binary | REST API server, background job queue, WebDAV server, and SQLite storage (`vajrad`). |
-| `vajra-protocol` | Library | Shared request/response types and `DaemonConfig` schemas. |
-| `vajra-cli` | Binary | Clap-based terminal client (`vajra`). |
-| `vajra-ui-tauri` | App | React + Tauri desktop GUI. |
-| `vajra-extension` | Extension | Chrome/Edge Manifest V3 browser extension. |
+Vajra is organized as a modular Rust Cargo workspace:
 
-> **Note:** The legacy `vajra-native-host` was removed in v0.4.1. The extension now connects purely via HTTP polling and auto-starts the app via the `vajra://` custom URL protocol.
+*   **`vajra-engine`**: High-performance multi-threaded core (throttling, multiplexing, sparse allocation, mmap).
+*   **`vajra-daemon`**: Axum-based server managing queue schedules, RSS feeds, WebDAV files, and webhook integrations.
+*   **`vajra-protocol`**: Unified serialization protocols and type mappings shared between clients and daemon.
+*   **`vajra-cli`**: Clap-based CLI client with full IDM command parameter mapping.
+*   **`vajra-ui-tauri`**: React-based desktop control center wrapping the daemon sidecar.
+*   **`vajra-extension`**: Chrome Manifest V3 sniffer extension.
+*   **`vajra-mobile`**: React Native (Expo) companion application.
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
-### First-Time Setup (Build All)
+### Prerequisites
 
-Run the included build script to automatically configure and build the entire workspace:
+*   [Rust stable](https://rustup.rs)
+*   [Node.js 18+](https://nodejs.org)
+*   [VS Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) (with "Desktop development with C++" workload)
+
+### Build the Workspace
+
+Run the root build script to compile the backend crates and frontend targets automatically:
 
 ```bat
 build-all.bat
 ```
 
-This single script:
-1. Loads the MSVC environment on Windows.
-2. Builds all Rust crates (`vajrad`, `vajra` CLI, Tauri backend).
-3. Installs node modules and compiles the React frontends.
-4. Packages the final installation artifacts.
-
-**Prerequisites:**
-- [Rust](https://rustup.rs) (`rustup install stable`)
-- [Node.js 18+](https://nodejs.org)
-- [VS Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with "Desktop development with C++" workload enabled.
-
----
-
-### Running Vajra
-
-Start the application by running:
+### Launching Vajra
 
 ```bat
 vajra.bat
 ```
 
-The UI will boot up and **automatically launch the daemon** in the background — no separate terminal needed. Closing the UI window hides the app to the system tray. Right-click the tray icon and select **Quit** to exit completely.
-
-> Running `vajra.bat` also registers the custom `vajra://` URL protocol handler in the Windows Registry, enabling the browser extension to auto-start the UI and daemon on demand.
+The desktop app will launch and start the background daemon automatically. If you close the main window, the application continues to run in the Windows system tray.
 
 ### Browser Extension Setup
 
-1. Open `chrome://extensions` (or `edge://extensions` for Microsoft Edge).
-2. Enable **Developer Mode** in the top right.
-3. Click **Load unpacked** in the top left.
-4. Select the `vajra-extension/` directory (or build it first via `npm run build` inside `vajra-extension` and load `dist/`).
-5. Open the Vajra extension popup. If Vajra isn't running, click **Launch Vajra** to auto-start the application.
+1. Open `chrome://extensions` in Chrome/Edge.
+2. Enable **Developer Mode**.
+3. Click **Load unpacked** and select the `vajra-extension/` directory (or load the `dist/` directory after running `npm run build` inside the extension directory).
+4. Select the extension, and click **Launch Vajra** if the daemon is offline.
 
 ---
 
-## ⚙️ Engine Internals (`vajra-engine`)
+## 🔌 API Reference
 
-### Multi-Segment Download Flow
+Base REST Endpoints (`http://127.0.0.1:6277/api/v1`):
 
-1. **HEAD Probe**: Queries the URL to fetch `Content-Length`, `Accept-Ranges`, and `ETag`. Falls back gracefully to `GET` with a single byte range if HEAD is blocked.
-2. **Auto-Categorize**: Scans file extensions and routes the download to designated folders (e.g., Videos, Music, Documents).
-3. **OS-Level Space Allocation**: Pre-allocates contiguous space on the disk to prevent mid-download fragmentation or disk-full panics:
-   - **Windows**: Uses `SetEndOfFile` + `SetFileValidData` (bypasses zero-filling for instant gigabyte allocation).
-   - **Linux**: Uses `fallocate(2)`.
-   - **macOS**: Uses `fcntl(F_PREALLOCATE)` + `ftruncate`.
-4. **Byte-Range Multiplexing**: Splits the file size into concurrent segment downloads using HTTP `Range` requests (minimum chunk size of 1 MiB).
-5. **Dynamic Thread Stealing**: When a worker finishes its chunk, it steals half of the largest remaining active segment from the slowest thread. No worker goes idle until the file is fully downloaded.
-6. **Token-Bucket Throttling**: Limits connection speeds globally or on a per-download basis.
-7. **Memory-Mapped Disk Writer**: Writes stream dataframes directly to mapped virtual memory-mapped positions via `MmapHandle`, falling back to standard sequential positional disk writing on failure.
-8. **Transactional State Persistence**: Stores segment progress transactional metadata in a SQLite database (`download_segments`) for highly resilient resumes.
+*   `GET /health` — Daemon health check
+*   `GET /downloads` — List all downloads
+*   `POST /downloads` — Create a new download task
+*   `PATCH /downloads/:id` — Pause/resume/cancel a download
+*   `GET /stats` — Live global queue throughput and speed stats
+*   `GET /events` — Real-time progress update SSE event stream
 
 ---
 
-## 🔌 REST API Reference
+## 🤝 Contributing
 
-Base URL: `http://127.0.0.1:6277/api/v1`
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Daemon health check |
-| `GET` | `/downloads` | List all download records |
-| `POST` | `/downloads` | Add new download (auto-categorized by default) |
-| `GET` | `/downloads/:id` | Get details of a single download |
-| `PATCH` | `/downloads/:id` | Pause / Resume / Cancel download task |
-| `DELETE`| `/downloads/:id` | Remove download from history (optionally clean files) |
-| `GET` | `/stats` | Global throughput and active queue stats |
-| `GET` | `/config` | Read current DaemonConfig |
-| `PATCH` | `/config` | Update category rules, speed limits, proxy, etc. |
-
-### SSE (Server-Sent Events)
-
-`GET /events` streams real-time newline-delimited JSON events for progress bars, emitted every 500ms.
+We welcome contributions of all sizes! Check out our [Contributing Guide](CONTRIBUTING.md) to get started.
 
 ---
 
-## 📁 Configuration & Auto-Categorization
+## 🛡️ License & Security
 
-The daemon stores config in `%LOCALAPPDATA%/Vajra/config.json`. By default, downloads are automatically routed to the correct folder based on extension:
-
-- **Videos** → `%USERPROFILE%\Videos`
-- **Music** → `%USERPROFILE%\Music`
-- **Documents** → `%USERPROFILE%\Documents`
-- **Software / Archives** → `%USERPROFILE%\Downloads`
-
-You can configure proxy settings, speed limits, max concurrent downloads, and post-queue actions (e.g., sleep/hibernate when done) via the settings UI or API.
-
----
-
-## 🛠️ Troubleshooting
-
-### `LNK1104: cannot open file 'msvcrt.lib'` during build
-If you have a non-standard MSVC installation on Windows, the build may fail looking for the CRT libraries.
-**Fix:** Add the `onecore` path to `.cargo/config.toml`:
-```toml
-[target.x86_64-pc-windows-msvc]
-rustflags = ["-L", "C:\\Program Files\\Microsoft Visual Studio\\...\\lib\\onecore\\x64"]
-```
-
-### vswhom-sys build script fails
-Some Tauri dependencies try to auto-detect Visual Studio and fail.
-**Fix:** Run `cargo clean` and rebuild.
-
----
-
-## 📖 Further Documentation
-
-- [Architecture & Developer Guide](docs/ARCHITECTURE.md)
-- [Changelog](docs/CHANGELOG.md)
+*   Vajra is open source under the [GPL-3.0 License](LICENSE).
+*   Please review our [Security Policy](SECURITY.md) to report vulnerabilities privately.
