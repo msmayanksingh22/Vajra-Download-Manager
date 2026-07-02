@@ -45,8 +45,10 @@ fn make_req(url: &str, priority: Priority) -> DownloadRequest {
 
 #[tokio::test]
 async fn test_manager_queue_ordering() {
-    let mut settings = QueueSettings::default();
-    settings.max_concurrent = 1; // Only process one at a time
+    let settings = QueueSettings {
+        max_concurrent: 1, // Only process one at a time
+        ..Default::default()
+    };
     let manager = DownloadManager::new(settings, 0);
 
     let req1 = make_req("http://example.com/1", Priority::Normal);
@@ -55,8 +57,8 @@ async fn test_manager_queue_ordering() {
     let id1 = Uuid::new_v4();
     let id2 = Uuid::new_v4();
 
-    manager.add_with_id(id1.clone(), req1).await;
-    manager.add_with_id(id2.clone(), req2).await;
+    manager.add_with_id(id1, req1).await;
+    manager.add_with_id(id2, req2).await;
 
     let entries = manager.all_progress().await;
     assert_eq!(entries.len(), 2);
@@ -64,24 +66,28 @@ async fn test_manager_queue_ordering() {
 
 #[tokio::test]
 async fn test_manager_fap() {
-    let mut settings = QueueSettings::default();
-    settings.fap_enabled = true;
-    settings.fap_quota_bytes = 1024; // 1KB quota
-    settings.max_concurrent = 2;
+    let settings = QueueSettings {
+        fap_enabled: true,
+        fap_quota_bytes: 1024, // 1KB quota
+        max_concurrent: 2,
+        ..Default::default()
+    };
     let _manager = DownloadManager::new(settings, 0);
 }
 
 #[tokio::test]
 async fn test_manager_lifecycle() {
-    let mut settings = QueueSettings::default();
-    settings.max_concurrent = 2;
+    let settings = QueueSettings {
+        max_concurrent: 2,
+        ..Default::default()
+    };
     let manager = DownloadManager::new(settings, 0);
 
     let req = make_req("http://example.com/lifecycle", Priority::Normal);
     let id = Uuid::new_v4();
 
     // 1. Add
-    manager.add_with_id(id.clone(), req).await;
+    manager.add_with_id(id, req).await;
 
     // Wait for it to show up
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;

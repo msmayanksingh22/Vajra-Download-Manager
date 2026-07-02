@@ -3,9 +3,11 @@ fn main() {
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async {
-        let mut opts = librqbit::SessionOptions::default();
-        opts.disable_dht_persistence = true;
-        opts.listen_port_range = Some(6881..6890);
+        let opts = librqbit::SessionOptions {
+            disable_dht_persistence: true,
+            listen_port_range: Some(6881..6890),
+            ..Default::default()
+        };
 
         let session = librqbit::Session::new_with_opts(
             "D:\\Project\\Project-Vajra\\vajra-daemon".into(),

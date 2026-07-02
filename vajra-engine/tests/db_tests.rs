@@ -20,9 +20,11 @@ fn test_settings_crud() {
     let (_dir, db) = create_temp_db();
 
     // Default settings
-    let mut settings = AppSettings::default();
-    settings.global_speed_limit_bps = 1000;
-    settings.dark_mode = false;
+    let settings = AppSettings {
+        global_speed_limit_bps: 1000,
+        dark_mode: false,
+        ..Default::default()
+    };
 
     // Save
     db.save_settings(&settings).unwrap();
@@ -30,7 +32,7 @@ fn test_settings_crud() {
     // Load
     let loaded = db.load_settings().unwrap();
     assert_eq!(loaded.global_speed_limit_bps, 1000);
-    assert_eq!(loaded.dark_mode, false);
+    assert!(!loaded.dark_mode);
 }
 
 #[test]
