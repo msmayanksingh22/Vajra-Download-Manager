@@ -4,6 +4,7 @@ version = "0.2.0"
 description = "Vajra Download Manager"
 authors = ["Vajra"]
 edition = "2021"
+license = "GPL-3.0-only"
 
 [lib]
 name = "vajra_ui_tauri_lib"
