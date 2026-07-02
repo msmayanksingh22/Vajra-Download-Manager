@@ -502,15 +502,13 @@ async fn run_download(
                         let size = std::fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0);
                         let _ = db.save_file_hash(&p.dest_path, &hash, size);
 
-                        match db.find_duplicate_file(&hash, &p.dest_path) {
-                            Ok(Some(existing_path)) => {
-                                tracing::warn!(
-                                    "Content duplicate detected! File has same content hash as: {}",
-                                    existing_path
-                                );
-                                p.error = Some(format!("Content duplicate of: {}", existing_path));
-                            }
-                            _ => {}
+                        if let Ok(Some(existing_path)) = db.find_duplicate_file(&hash, &p.dest_path)
+                        {
+                            tracing::warn!(
+                                "Content duplicate detected! File has same content hash as: {}",
+                                existing_path
+                            );
+                            p.error = Some(format!("Content duplicate of: {}", existing_path));
                         }
                     }
                 }
@@ -733,6 +731,9 @@ async fn download_inner(
 
     let start_time = std::time::Instant::now();
 
+    let re_sitekey1 = regex::Regex::new(r#"data-sitekey=["']([A-Za-z0-9_-]{40})["']"#).unwrap();
+    let re_sitekey2 = regex::Regex::new(r#"sitekey\s*:\s*["']([A-Za-z0-9_-]{40})["']"#).unwrap();
+
     // Probe result: (response, Option<overridden_total_bytes>)
     let (head, probe_total_bytes_override) = loop {
         let res = match primary_client.head(&target_url).send().await {
@@ -762,18 +763,9 @@ async fn download_inner(
                         {
                             if let Ok(body_text) = resp.text().await {
                                 let mut site_key = None;
-                                if let Some(cap) =
-                                    regex::Regex::new(r#"data-sitekey=["']([A-Za-z0-9_-]{40})["']"#)
-                                        .ok()
-                                        .and_then(|re| re.captures(&body_text))
-                                {
+                                if let Some(cap) = re_sitekey1.captures(&body_text) {
                                     site_key = Some(cap[1].to_string());
-                                } else if let Some(cap) = regex::Regex::new(
-                                    r#"sitekey\s*:\s*["']([A-Za-z0-9_-]{40})["']"#,
-                                )
-                                .ok()
-                                .and_then(|re| re.captures(&body_text))
-                                {
+                                } else if let Some(cap) = re_sitekey2.captures(&body_text) {
                                     site_key = Some(cap[1].to_string());
                                 }
 
