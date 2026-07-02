@@ -669,7 +669,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         while let Ok(msg) = rx.recv().await {
             // we serialize the same DaemonEvent as JSON
             if let Ok(json) = serde_json::to_string(&*msg) {
-                if futures_util::SinkExt::send(&mut sender, Message::Text(json.into()))
+                if futures_util::SinkExt::send(&mut sender, Message::Text(json))
                     .await
                     .is_err()
                 {
@@ -1362,7 +1362,7 @@ pub async fn preview_download(
     let mut dst_file =
         std::fs::File::create(&preview_path).map_err(|e| DaemonError::Internal(e.to_string()))?;
 
-    let copy_limit = progress.bytes_downloaded.min(10 * 1024 * 1024).max(1024);
+    let copy_limit = progress.bytes_downloaded.clamp(1024, 10 * 1024 * 1024);
     let mut buffer = vec![0u8; 8192];
     let mut total_copied = 0;
 
