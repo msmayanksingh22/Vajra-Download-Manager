@@ -23,12 +23,9 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v2
-        
       - name: Rustfmt Check
         run: cargo fmt --all -- --check
-        
+
       - name: Install Tauri dependencies (Ubuntu)
         run: |
           sudo apt-get update
@@ -41,10 +38,13 @@ jobs:
 
       - name: Clippy Check
         run: cargo clippy --workspace -- -D warnings
-        
+
       - name: Security and License Audit (cargo deny)
-        run: cargo deny check
-        
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
       - name: Run Tests
         run: cargo test --workspace
 
