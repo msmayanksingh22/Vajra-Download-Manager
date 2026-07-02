@@ -1,5 +1,3 @@
-
-
 use bytes::Bytes;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use tempfile::tempdir;
