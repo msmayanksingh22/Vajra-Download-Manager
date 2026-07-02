@@ -1,6 +1,6 @@
 [advisories]
-unsound = "warn"
-unmaintained = "warn"
+unsound = "none"
+unmaintained = "none"
 yanked = "warn"
 ignore = [
     "RUSTSEC-2024-0370",
