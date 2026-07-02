@@ -63,7 +63,7 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       getCurrentWindow().setTheme(computedTheme);
     } catch (e) {
-      console.warn("Failed to set native window theme", e);
+      console.warn('Failed to set native window theme', e);
     }
   }, [computedTheme]);
 
@@ -75,12 +75,12 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
         setComputedTheme(e.matches ? 'dark' : 'light');
       }
     };
-    
+
     // Modern API
     if (mediaQuery.addEventListener) {
       mediaQuery.addEventListener('change', handleChange);
       return () => mediaQuery.removeEventListener('change', handleChange);
-    } 
+    }
     // Fallback for older WebKit
     else if (mediaQuery.addListener) {
       mediaQuery.addListener(handleChange);
@@ -116,6 +116,6 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
 // eslint-disable-next-line react-refresh/only-export-components
 export const useTheme = () => {
   const context = useContext(ThemeContext);
-  if (!context) throw new Error("useTheme must be used within a ThemeProvider");
+  if (!context) throw new Error('useTheme must be used within a ThemeProvider');
   return context;
 };

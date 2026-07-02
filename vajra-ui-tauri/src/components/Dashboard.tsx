@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmtSpeed } from '../api';
 import { StatsResponse } from '../types';
-import {
-  FolderDown, ArrowRightLeft, Bolt, Database, Activity, Timer,
-} from 'lucide-react';
+import { FolderDown, ArrowRightLeft, Bolt, Database, Activity, Timer } from 'lucide-react';
 
 interface DashboardProps {
   onNavigate?: (category: string) => void;
@@ -20,7 +18,10 @@ const SkeletonCard = () => (
 
 const SkeletonChart = () => (
   <div className="card-subtle dashboard-chart-card">
-    <div className="skeleton" style={{ width: 160, height: 14, borderRadius: 'var(--radius-sm)' }} />
+    <div
+      className="skeleton"
+      style={{ width: 160, height: 14, borderRadius: 'var(--radius-sm)' }}
+    />
     <div className="skeleton" style={{ flex: 1, borderRadius: 'var(--radius-md)' }} />
   </div>
 );
@@ -61,15 +62,27 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       <div className="dashboard-root">
         {/* Header skeleton */}
         <div className="dashboard-header">
-          <div className="skeleton" style={{ width: 180, height: 22, borderRadius: 'var(--radius-sm)' }} />
+          <div
+            className="skeleton"
+            style={{ width: 180, height: 22, borderRadius: 'var(--radius-sm)' }}
+          />
           <div className="flex" style={{ gap: 8 }}>
-            <div className="skeleton" style={{ width: 130, height: 30, borderRadius: 'var(--radius-md)' }} />
-            <div className="skeleton" style={{ width: 140, height: 30, borderRadius: 'var(--radius-md)' }} />
+            <div
+              className="skeleton"
+              style={{ width: 130, height: 30, borderRadius: 'var(--radius-md)' }}
+            />
+            <div
+              className="skeleton"
+              style={{ width: 140, height: 30, borderRadius: 'var(--radius-md)' }}
+            />
           </div>
         </div>
         {/* KPI skeletons */}
         <div className="dashboard-kpi-grid">
-          <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
         {/* Chart skeleton */}
         <SkeletonChart />
@@ -110,13 +123,19 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     return { x, y };
   });
 
-  const linePath = points.length > 0 
-    ? `M ${points[0].x} ${points[0].y} ` + points.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') 
-    : '';
+  const linePath =
+    points.length > 0
+      ? `M ${points[0].x} ${points[0].y} ` +
+        points
+          .slice(1)
+          .map((p) => `L ${p.x} ${p.y}`)
+          .join(' ')
+      : '';
 
-  const areaPath = points.length > 0
-    ? `${linePath} L ${points[points.length - 1].x} ${chartHeight} L ${points[0].x} ${chartHeight} Z`
-    : '';
+  const areaPath =
+    points.length > 0
+      ? `${linePath} L ${points[points.length - 1].x} ${chartHeight} L ${points[0].x} ${chartHeight} Z`
+      : '';
 
   const totalGb = (stats.total_downloaded_bytes / (1024 * 1024 * 1024)).toFixed(2);
   const currentSpeedMbs = (stats.aggregate_speed_bps / (1024 * 1024)).toFixed(2);
@@ -154,7 +173,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
   return (
     <div className="dashboard-root">
-
       {/* ── Header ── */}
       <div className="dashboard-header">
         <div>
@@ -194,14 +212,16 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       </div>
 
       {/* ── Speed Chart ── */}
-      <div className="card-subtle dashboard-chart-card" style={{ height: 280, display: 'flex', flexDirection: 'column' }}>
+      <div
+        className="card-subtle dashboard-chart-card"
+        style={{ height: 280, display: 'flex', flexDirection: 'column' }}
+      >
         <div className="dashboard-chart-header">
           <h3 className="dashboard-chart-title">Global Speed History</h3>
           <span className="dashboard-chart-meta">
-            {hoverPos 
-              ? `Speed: ${fmtSpeed(hoverPos.val)}` 
-              : `Last ${speedHistory.length} samples (Max: ${fmtSpeed(maxSpeed)})`
-            }
+            {hoverPos
+              ? `Speed: ${fmtSpeed(hoverPos.val)}`
+              : `Last ${speedHistory.length} samples (Max: ${fmtSpeed(maxSpeed)})`}
           </span>
         </div>
         <div style={{ flex: 1, position: 'relative', marginTop: 12 }} className="select-none">
@@ -222,40 +242,83 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                     <stop offset="100%" stopColor="var(--color-brand)" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                
+
                 {/* Gridlines */}
-                <line x1="0" y1={chartHeight} x2={width} y2={chartHeight} stroke="var(--color-border-subtle)" strokeWidth={1} />
-                <line x1="0" y1={chartHeight / 2} x2={width} y2={chartHeight / 2} stroke="var(--color-border-subtle)" strokeWidth={1} strokeDasharray="3 3" />
-                <line x1="0" y1={15} x2={width} y2={15} stroke="var(--color-border-subtle)" strokeWidth={1} strokeDasharray="3 3" />
+                <line
+                  x1="0"
+                  y1={chartHeight}
+                  x2={width}
+                  y2={chartHeight}
+                  stroke="var(--color-border-subtle)"
+                  strokeWidth={1}
+                />
+                <line
+                  x1="0"
+                  y1={chartHeight / 2}
+                  x2={width}
+                  y2={chartHeight / 2}
+                  stroke="var(--color-border-subtle)"
+                  strokeWidth={1}
+                  strokeDasharray="3 3"
+                />
+                <line
+                  x1="0"
+                  y1={15}
+                  x2={width}
+                  y2={15}
+                  stroke="var(--color-border-subtle)"
+                  strokeWidth={1}
+                  strokeDasharray="3 3"
+                />
 
                 {/* Area & Line */}
                 {areaPath && <path d={areaPath} fill="url(#dashGrad)" />}
-                {linePath && <path d={linePath} fill="none" stroke="var(--color-brand)" strokeWidth={1.5} />}
+                {linePath && (
+                  <path d={linePath} fill="none" stroke="var(--color-brand)" strokeWidth={1.5} />
+                )}
 
                 {/* Y-Axis Labels */}
-                <text x={4} y={12} fill="var(--color-text-4)" fontSize={9} fontWeight={600}>{fmtSpeed(maxSpeed)}</text>
-                <text x={4} y={chartHeight / 2 + 3} fill="var(--color-text-4)" fontSize={9} fontWeight={600}>{fmtSpeed(maxSpeed / 2)}</text>
-                <text x={4} y={chartHeight - 4} fill="var(--color-text-4)" fontSize={9} fontWeight={600}>0 KB/s</text>
+                <text x={4} y={12} fill="var(--color-text-4)" fontSize={9} fontWeight={600}>
+                  {fmtSpeed(maxSpeed)}
+                </text>
+                <text
+                  x={4}
+                  y={chartHeight / 2 + 3}
+                  fill="var(--color-text-4)"
+                  fontSize={9}
+                  fontWeight={600}
+                >
+                  {fmtSpeed(maxSpeed / 2)}
+                </text>
+                <text
+                  x={4}
+                  y={chartHeight - 4}
+                  fill="var(--color-text-4)"
+                  fontSize={9}
+                  fontWeight={600}
+                >
+                  0 KB/s
+                </text>
 
                 {/* Interactive Tooltip Cursor */}
                 {hoverPos && (
                   <>
-                    <line 
-                      x1={(hoverIndex! / Math.max(1, speedHistory.length - 1)) * width} 
-                      y1={0} 
-                      x2={(hoverIndex! / Math.max(1, speedHistory.length - 1)) * width} 
-                      y2={chartHeight} 
-                      stroke="var(--color-brand)" 
-                      strokeWidth={1} 
-                      strokeDasharray="2 2" 
+                    <line
+                      x1={(hoverIndex! / Math.max(1, speedHistory.length - 1)) * width}
+                      y1={0}
+                      x2={(hoverIndex! / Math.max(1, speedHistory.length - 1)) * width}
+                      y2={chartHeight}
+                      stroke="var(--color-brand)"
+                      strokeWidth={1}
+                      strokeDasharray="2 2"
                     />
-                    <circle 
-                      cx={(hoverIndex! / Math.max(1, speedHistory.length - 1)) * width} 
-                      cy={hoverPos.y} 
-                      r={4} 
-                      fill="var(--color-brand)" 
-                      stroke="var(--color-surface)" 
-                      strokeWidth={1.5} 
+                    <circle
+                      cx={(hoverIndex! / Math.max(1, speedHistory.length - 1)) * width}
+                      cy={hoverPos.y}
+                      r={4}
+                      fill="var(--color-brand)"
+                      stroke="var(--color-surface)"
+                      strokeWidth={1.5}
                     />
                   </>
                 )}
@@ -263,7 +326,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
               {/* Floating Tooltip HTML Overlay */}
               {hoverPos && (
-                <div 
+                <div
                   style={{
                     position: 'absolute',
                     left: hoverPos.x + 12,
@@ -287,13 +350,21 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
               )}
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-4)', fontSize: 'var(--text-sm-size)' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                color: 'var(--color-text-4)',
+                fontSize: 'var(--text-sm-size)',
+              }}
+            >
               No speed data available
             </div>
           )}
         </div>
       </div>
-
     </div>
   );
 }

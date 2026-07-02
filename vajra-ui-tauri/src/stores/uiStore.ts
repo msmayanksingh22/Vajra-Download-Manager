@@ -12,10 +12,10 @@ interface UiStore {
   // Modal states
   isAddModalOpen: boolean;
   setAddModalOpen: (open: boolean) => void;
-  
+
   isSettingsModalOpen: boolean;
   setSettingsModalOpen: (open: boolean) => void;
-  
+
   isStatsModalOpen: boolean;
   setStatsModalOpen: (open: boolean) => void;
 
@@ -71,7 +71,10 @@ export const useUiStore = create<UiStore>((set) => ({
   theme: 'system',
   setTheme: (theme) => set({ theme }),
 
-  dir: (typeof localStorage !== 'undefined' ? localStorage.getItem('vajra-dir') as 'ltr' | 'rtl' : 'ltr') || 'ltr',
+  dir:
+    (typeof localStorage !== 'undefined'
+      ? (localStorage.getItem('vajra-dir') as 'ltr' | 'rtl')
+      : 'ltr') || 'ltr',
   setDir: (dir) => {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('vajra-dir', dir);
@@ -82,14 +85,15 @@ export const useUiStore = create<UiStore>((set) => ({
 
   spiderInitialUrl: '',
   spiderInitialExtensions: '',
-  setSpiderInitial: (url, extensions) => set({ spiderInitialUrl: url, spiderInitialExtensions: extensions }),
+  setSpiderInitial: (url, extensions) =>
+    set({ spiderInitialUrl: url, spiderInitialExtensions: extensions }),
 
   isAddModalOpen: false,
   setAddModalOpen: (open) => set({ isAddModalOpen: open }),
 
   isSettingsModalOpen: false,
   setSettingsModalOpen: (open) => set({ isSettingsModalOpen: open }),
-  
+
   isStatsModalOpen: false,
   setStatsModalOpen: (open) => set({ isStatsModalOpen: open }),
 
@@ -129,20 +133,22 @@ export const useUiStore = create<UiStore>((set) => ({
 
   smartLists: JSON.parse(
     (typeof localStorage !== 'undefined' ? localStorage.getItem('vajra-smart-lists') : null) ||
-    '[{"id":"large","name":"Large Files (>100MB)","query":"size:>104857600"},{"id":"github","name":"GitHub Sources","query":"url:github.com"},{"id":"fast","name":"Fast Downloads (>2MB/s)","query":"speed:>2097152"}]'
+      '[{"id":"large","name":"Large Files (>100MB)","query":"size:>104857600"},{"id":"github","name":"GitHub Sources","query":"url:github.com"},{"id":"fast","name":"Fast Downloads (>2MB/s)","query":"speed:>2097152"}]',
   ),
-  addSmartList: (name, query) => set((state) => {
-    const newList = [...state.smartLists, { id: Date.now().toString(), name, query }];
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('vajra-smart-lists', JSON.stringify(newList));
-    }
-    return { smartLists: newList };
-  }),
-  removeSmartList: (id) => set((state) => {
-    const newList = state.smartLists.filter(x => x.id !== id);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('vajra-smart-lists', JSON.stringify(newList));
-    }
-    return { smartLists: newList };
-  }),
+  addSmartList: (name, query) =>
+    set((state) => {
+      const newList = [...state.smartLists, { id: Date.now().toString(), name, query }];
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('vajra-smart-lists', JSON.stringify(newList));
+      }
+      return { smartLists: newList };
+    }),
+  removeSmartList: (id) =>
+    set((state) => {
+      const newList = state.smartLists.filter((x) => x.id !== id);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('vajra-smart-lists', JSON.stringify(newList));
+      }
+      return { smartLists: newList };
+    }),
 }));

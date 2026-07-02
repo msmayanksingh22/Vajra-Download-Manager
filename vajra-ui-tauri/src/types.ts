@@ -1,4 +1,11 @@
-export type DownloadStatus = 'downloading' | 'connecting' | 'completed' | 'paused' | 'failed' | 'idle' | 'verifying';
+export type DownloadStatus =
+  | 'downloading'
+  | 'connecting'
+  | 'completed'
+  | 'paused'
+  | 'failed'
+  | 'idle'
+  | 'verifying';
 export type Priority = 'high' | 'normal' | 'low';
 export type QueueType = 'Standard' | 'Synchronization';
 
@@ -176,10 +183,28 @@ export interface DaemonConfig {
 }
 
 export type DaemonEvent =
-  | { event: "progress"; download_id: string; url: string; filename: string; total_bytes: number | null; downloaded_bytes: number; speed_bps: number; eta_seconds: number | null; status: DownloadStatus; resume_supported: boolean; segments: SegmentInfo[]; error: string | null; }
-  | { event: "state_change"; id: string; status: DownloadStatus; output_path: string | null; error: string | null; }
-  | { event: "hash_result"; id: string; matched: boolean; algorithm: string; computed: string; }
-  | { event: "added"; id: string; url: string; filename: string; }
-  | { event: "removed"; id: string; }
-  | { event: "intercepted"; url: string; filename: string; }
-;
+  | {
+      event: 'progress';
+      download_id: string;
+      url: string;
+      filename: string;
+      total_bytes: number | null;
+      downloaded_bytes: number;
+      speed_bps: number;
+      eta_seconds: number | null;
+      status: DownloadStatus;
+      resume_supported: boolean;
+      segments: SegmentInfo[];
+      error: string | null;
+    }
+  | {
+      event: 'state_change';
+      id: string;
+      status: DownloadStatus;
+      output_path: string | null;
+      error: string | null;
+    }
+  | { event: 'hash_result'; id: string; matched: boolean; algorithm: string; computed: string }
+  | { event: 'added'; id: string; url: string; filename: string }
+  | { event: 'removed'; id: string }
+  | { event: 'intercepted'; url: string; filename: string };

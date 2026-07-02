@@ -13,7 +13,7 @@ interface State {
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
-    error: null
+    error: null,
   };
 
   public static getDerivedStateFromError(error: Error): State {
@@ -33,17 +33,15 @@ export class ErrorBoundary extends Component<Props, State> {
               <AlertTriangle className="w-10 h-10" />
               <h1 className="text-2xl font-bold">Something went wrong</h1>
             </div>
-            
-            <p className="text-gray-300 mb-4">
-              Vajra encountered an unexpected error. 
-            </p>
-            
+
+            <p className="text-gray-300 mb-4">Vajra encountered an unexpected error.</p>
+
             {this.state.error && (
               <div className="bg-black/50 p-4 rounded-lg overflow-x-auto mb-6 text-sm font-mono text-red-300 border border-gray-700">
                 {this.state.error.message}
               </div>
             )}
-            
+
             <button
               onClick={() => window.location.reload()}
               className="flex items-center justify-center gap-2 w-full py-3 bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors rounded-lg font-semibold text-white"

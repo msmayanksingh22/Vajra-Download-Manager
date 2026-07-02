@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from 'react';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { X, Lock, Link as LinkIcon, Folder, HardDriveDownload, Search, Activity, Box, Download, FileCode2 } from 'lucide-react';
+import {
+  X,
+  Lock,
+  Link as LinkIcon,
+  Folder,
+  HardDriveDownload,
+  Search,
+  Activity,
+  Box,
+  Download,
+  FileCode2,
+} from 'lucide-react';
 import { api, fmtBytes } from '../../api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useUiStore } from '../../stores/uiStore';
@@ -11,8 +22,11 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export default function AddUrlDialog({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  downloads = [], initialUrl = '', onClose, onOk,
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  downloads = [],
+  initialUrl = '',
+  onClose,
+  onOk,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 }: any) {
   const [url, setUrl] = useState(initialUrl);
   useDialogEscape(onClose);
@@ -34,15 +48,20 @@ export default function AddUrlDialog({
   const [ytdlpSubtitles, setYtdlpSubtitles] = useState(false);
   const [ytdlpPlaylist, setYtdlpPlaylist] = useState(false);
   const [syncIntervalMins, setSyncIntervalMins] = useState(60);
-  const [inspectState, setInspectState] = useState<'idle'|'loading'|'success'|'error'>('idle');
+  const [inspectState, setInspectState] = useState<'idle' | 'loading' | 'success' | 'error'>(
+    'idle',
+  );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [inspectData, setInspectData] = useState<any>(null);
   const [filename, setFilename] = useState('');
 
   useEffect(() => {
-    api.config().then(cfg => {
-      if (cfg?.default_max_connections) setMaxConnections(cfg.default_max_connections);
-    }).catch(console.error);
+    api
+      .config()
+      .then((cfg) => {
+        if (cfg?.default_max_connections) setMaxConnections(cfg.default_max_connections);
+      })
+      .catch(console.error);
   }, []);
 
   // Auto-fill credentials
@@ -53,17 +72,27 @@ export default function AddUrlDialog({
       const saved = localStorage.getItem('vajra_site_logins');
       if (saved) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const match = JSON.parse(saved).find((l: any) =>
-          host === l.host.toLowerCase() || host.endsWith('.' + l.host.toLowerCase())
+        const match = JSON.parse(saved).find(
+          (l: any) => host === l.host.toLowerCase() || host.endsWith('.' + l.host.toLowerCase()),
         );
-        if (match) { setUseAuth(true); setUsername(match.user); setPassword(match.pass); }
+        if (match) {
+          setUseAuth(true);
+          setUsername(match.user);
+          setPassword(match.pass);
+        }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, [url]);
 
   // Debounced inspect
   useEffect(() => {
-    if (!url.trim() || !url.startsWith('http')) { setInspectState('idle'); setInspectData(null); return; }
+    if (!url.trim() || !url.startsWith('http')) {
+      setInspectState('idle');
+      setInspectData(null);
+      return;
+    }
     const t = setTimeout(async () => {
       setInspectState('loading');
       try {
@@ -72,23 +101,37 @@ export default function AddUrlDialog({
         if (res.filename) setFilename(res.filename);
         if (res.ytdlp_supported) setUseYtdlp(true);
         setInspectState('success');
-      } catch { setInspectState('error'); }
+      } catch {
+        setInspectState('error');
+      }
     }, 800);
     return () => clearTimeout(t);
   }, [url]);
 
-  const parseNaturalLanguageDownload = (input: string): { url: string; extensions: string } | null => {
-    const match = input.match(/(?:download|grab|get|spider)\s+all\s+(?:of\s+)?(?:the\s+)?([\w\s,.-]+?)\s+from\s+(https?:\/\/[^\s]+)/i);
+  const parseNaturalLanguageDownload = (
+    input: string,
+  ): { url: string; extensions: string } | null => {
+    const match = input.match(
+      /(?:download|grab|get|spider)\s+all\s+(?:of\s+)?(?:the\s+)?([\w\s,.-]+?)\s+from\s+(https?:\/\/[^\s]+)/i,
+    );
     if (match) {
-      const rawExts = match[1].toLowerCase().replace(/\band\b/g, '').replace(/[\s,]+/g, ' ').trim();
-      const exts = rawExts.split(' ').map(ext => {
-        const e = ext.trim();
-        if (e === 'images' || e === 'image') return 'png, jpg, jpeg, gif, webp';
-        if (e === 'videos' || e === 'video') return 'mp4, mkv, avi, mov';
-        if (e === 'documents' || e === 'document') return 'pdf, docx, doc, xlsx, txt';
-        if (e.endsWith('s') && e.length > 2) return e.slice(0, -1);
-        return e;
-      }).filter(Boolean).join(', ');
+      const rawExts = match[1]
+        .toLowerCase()
+        .replace(/\band\b/g, '')
+        .replace(/[\s,]+/g, ' ')
+        .trim();
+      const exts = rawExts
+        .split(' ')
+        .map((ext) => {
+          const e = ext.trim();
+          if (e === 'images' || e === 'image') return 'png, jpg, jpeg, gif, webp';
+          if (e === 'videos' || e === 'video') return 'mp4, mkv, avi, mov';
+          if (e === 'documents' || e === 'document') return 'pdf, docx, doc, xlsx, txt';
+          if (e.endsWith('s') && e.length > 2) return e.slice(0, -1);
+          return e;
+        })
+        .filter(Boolean)
+        .join(', ');
 
       return {
         url: match[2].trim(),
@@ -139,19 +182,32 @@ export default function AddUrlDialog({
     try {
       const selected = await open({ directory: true, multiple: false });
       if (selected) setOutputDir(selected as string);
-    } catch (err) { console.error('Folder picker not available', err); }
+    } catch (err) {
+      console.error('Folder picker not available', err);
+    }
   };
 
   /* ---- Field helpers ---- */
   const Label = ({ children }: { children: React.ReactNode }) => (
     <span className="form-label">{children}</span>
   );
-  const CheckRow = ({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) => (
-    <label className="flex items-center gap-2" style={{ cursor: 'default', fontSize: 'var(--text-sm-size)', color: 'var(--color-text-2)' }}>
+  const CheckRow = ({
+    checked,
+    onChange,
+    label,
+  }: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    label: string;
+  }) => (
+    <label
+      className="flex items-center gap-2"
+      style={{ cursor: 'default', fontSize: 'var(--text-sm-size)', color: 'var(--color-text-2)' }}
+    >
       <input
         type="checkbox"
         checked={checked}
-        onChange={e => onChange(e.target.checked)}
+        onChange={(e) => onChange(e.target.checked)}
         style={{ accentColor: 'var(--color-brand)', width: 13, height: 13, cursor: 'default' }}
       />
       {label}
@@ -160,8 +216,14 @@ export default function AddUrlDialog({
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
-      <div ref={trapRef} className="dialog-panel" style={{ width: 580 }} onClick={e => e.stopPropagation()}
-        role="dialog" aria-modal="true" aria-labelledby="addurl-dialog-title"
+      <div
+        ref={trapRef}
+        className="dialog-panel"
+        style={{ width: 580 }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="addurl-dialog-title"
       >
         {/* Header */}
         <div className="dialog-header">
@@ -176,14 +238,20 @@ export default function AddUrlDialog({
 
         {/* Body */}
         <div className="dialog-body" style={{ gap: 'var(--sp-4)' }}>
-
           {/* URL */}
           <div className="card-subtle" style={{ padding: 'var(--sp-3) var(--sp-4)' }}>
             <div className="flex items-center justify-between mb-2">
               <Label>Download URL</Label>
               <span style={{ fontSize: 'var(--text-xs-size)' }}>
                 {inspectState === 'loading' && (
-                  <span style={{ color: 'var(--color-info)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span
+                    style={{
+                      color: 'var(--color-info)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
                     <Search size={10} className="animate-pulse" /> Inspectingâ€¦
                   </span>
                 )}
@@ -191,7 +259,14 @@ export default function AddUrlDialog({
                   <span style={{ color: 'var(--color-error)' }}>Inspect failed</span>
                 )}
                 {inspectState === 'success' && (
-                  <span style={{ color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span
+                    style={{
+                      color: 'var(--color-success)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
                     <Activity size={10} /> Verified
                   </span>
                 )}
@@ -201,12 +276,19 @@ export default function AddUrlDialog({
               type="text"
               className="input-field"
               value={url}
-              onChange={e => setUrl(e.target.value)}
+              onChange={(e) => setUrl(e.target.value)}
               placeholder="https://"
               autoFocus
             />
             {inspectState === 'success' && inspectData && (
-              <div className="flex gap-4 mt-2 pt-2" style={{ borderTop: '1px solid var(--color-border-subtle)', fontSize: 'var(--text-xs-size)', color: 'var(--color-text-3)' }}>
+              <div
+                className="flex gap-4 mt-2 pt-2"
+                style={{
+                  borderTop: '1px solid var(--color-border-subtle)',
+                  fontSize: 'var(--text-xs-size)',
+                  color: 'var(--color-text-3)',
+                }}
+              >
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <HardDriveDownload size={10} style={{ color: 'var(--color-brand)' }} />
                   {inspectData.total_bytes ? fmtBytes(inspectData.total_bytes) : 'Unknown'}
@@ -215,7 +297,17 @@ export default function AddUrlDialog({
                   <Box size={10} style={{ color: 'var(--color-brand)' }} />
                   {inspectData.content_type || 'Unknown'}
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: inspectData.accepts_ranges ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    color: inspectData.accepts_ranges
+                      ? 'var(--color-success)'
+                      : 'var(--color-warning)',
+                    fontWeight: 600,
+                  }}
+                >
                   <Activity size={10} />
                   {inspectData.accepts_ranges ? 'Resume Supported' : 'No Resume'}
                 </span>
@@ -227,13 +319,30 @@ export default function AddUrlDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="form-group">
               <Label>File Name</Label>
-              <input type="text" className="input-field" value={filename} onChange={e => setFilename(e.target.value)} placeholder="Auto-detect" />
+              <input
+                type="text"
+                className="input-field"
+                value={filename}
+                onChange={(e) => setFilename(e.target.value)}
+                placeholder="Auto-detect"
+              />
             </div>
             <div className="form-group">
               <Label>Save Directory</Label>
               <div className="flex gap-1.5">
-                <input type="text" className="input-field" value={outputDir} onChange={e => setOutputDir(e.target.value)} placeholder="System default" />
-                <button className="btn-secondary flex-shrink-0 gap-1.5" style={{ padding: '0 10px' }} onClick={handleBrowse} title="Browse">
+                <input
+                  type="text"
+                  className="input-field"
+                  value={outputDir}
+                  onChange={(e) => setOutputDir(e.target.value)}
+                  placeholder="System default"
+                />
+                <button
+                  className="btn-secondary flex-shrink-0 gap-1.5"
+                  style={{ padding: '0 10px' }}
+                  onClick={handleBrowse}
+                  title="Browse"
+                >
                   <Folder size={14} />
                 </button>
               </div>
@@ -242,16 +351,39 @@ export default function AddUrlDialog({
 
           {/* yt-dlp Configuration */}
           {useYtdlp && (
-            <div className="card-subtle animate-fade-in" style={{ padding: 'var(--sp-3) var(--sp-4)', borderColor: 'var(--color-brand)', background: 'var(--color-brand-muted)' }}>
-              <div className="section-title mb-2" style={{ color: 'var(--color-brand)' }}>yt-dlp Extraction</div>
+            <div
+              className="card-subtle animate-fade-in"
+              style={{
+                padding: 'var(--sp-3) var(--sp-4)',
+                borderColor: 'var(--color-brand)',
+                background: 'var(--color-brand-muted)',
+              }}
+            >
+              <div className="section-title mb-2" style={{ color: 'var(--color-brand)' }}>
+                yt-dlp Extraction
+              </div>
               <div className="grid grid-cols-2 gap-3 mb-2">
                 <div className="form-group">
                   <Label>Format / Quality</Label>
-                  <input type="text" className="input-field" value={ytdlpFormat} onChange={e => setYtdlpFormat(e.target.value)} placeholder="bestvideo+bestaudio/best" />
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={ytdlpFormat}
+                    onChange={(e) => setYtdlpFormat(e.target.value)}
+                    placeholder="bestvideo+bestaudio/best"
+                  />
                 </div>
                 <div className="flex flex-col gap-2 justify-center mt-4">
-                  <CheckRow checked={ytdlpSubtitles} onChange={setYtdlpSubtitles} label="Embed Subtitles" />
-                  <CheckRow checked={ytdlpPlaylist} onChange={setYtdlpPlaylist} label="Download entire playlist" />
+                  <CheckRow
+                    checked={ytdlpSubtitles}
+                    onChange={setYtdlpSubtitles}
+                    label="Embed Subtitles"
+                  />
+                  <CheckRow
+                    checked={ytdlpPlaylist}
+                    onChange={setYtdlpPlaylist}
+                    label="Download entire playlist"
+                  />
                 </div>
               </div>
             </div>
@@ -264,38 +396,87 @@ export default function AddUrlDialog({
               <div className="form-group">
                 <Label>Threads</Label>
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                <select className="select-field" value={maxConnections} onChange={e => setMaxConnections(e.target.value as any)}>
-                  {[1,2,4,8,16,32,64].map(n => <option key={n} value={n}>{n}{n===64?' (Unsafe)':n===32?' (Extreme)':''}</option>)}
+                <select
+                  className="select-field"
+                  value={maxConnections}
+                  onChange={(e) => setMaxConnections(e.target.value as any)}
+                >
+                  {[1, 2, 4, 8, 16, 32, 64].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                      {n === 64 ? ' (Unsafe)' : n === 32 ? ' (Extreme)' : ''}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="form-group">
                 <Label>Speed Limit (KB/s)</Label>
-                <input type="number" className="input-field" value={speedLimitKb} onChange={e => setSpeedLimitKb(e.target.value)} placeholder="0 = Unlimited" />
+                <input
+                  type="number"
+                  className="input-field"
+                  value={speedLimitKb}
+                  onChange={(e) => setSpeedLimitKb(e.target.value)}
+                  placeholder="0 = Unlimited"
+                />
               </div>
               <div className="form-group">
                 <Label>Expected Hash</Label>
-                <input type="text" className="input-field" value={expectedHash} onChange={e => setExpectedHash(e.target.value)} placeholder="sha256:â€¦" />
+                <input
+                  type="text"
+                  className="input-field"
+                  value={expectedHash}
+                  onChange={(e) => setExpectedHash(e.target.value)}
+                  placeholder="sha256:â€¦"
+                />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 pt-3" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+            <div
+              className="grid grid-cols-2 gap-3 pt-3"
+              style={{ borderTop: '1px solid var(--color-border-subtle)' }}
+            >
               <div className="flex flex-col gap-2">
                 <CheckRow checked={useAuth} onChange={setUseAuth} label="Basic Authentication" />
                 {useAuth && (
                   <div className="flex gap-1.5 animate-fade-in">
-                    <input type="text" className="input-field" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" />
-                    <input type="password" className="input-field" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" />
+                    <input
+                      type="text"
+                      className="input-field"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Username"
+                    />
+                    <input
+                      type="password"
+                      className="input-field"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Password"
+                    />
                   </div>
                 )}
               </div>
               <div className="form-group">
                 <Label>Post-Process Script</Label>
-                <input type="text" className="input-field" value={postProcessingScript} onChange={e => setPostProcessingScript(e.target.value)} placeholder="C:\scripts\run.bat" />
+                <input
+                  type="text"
+                  className="input-field"
+                  value={postProcessingScript}
+                  onChange={(e) => setPostProcessingScript(e.target.value)}
+                  placeholder="C:\scripts\run.bat"
+                />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 pt-3 mt-1" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+            <div
+              className="grid grid-cols-2 gap-3 pt-3 mt-1"
+              style={{ borderTop: '1px solid var(--color-border-subtle)' }}
+            >
               <div className="form-group">
                 <Label>Queue Type</Label>
-                <select className="select-field" value={queueType} onChange={e => setQueueType(e.target.value)}>
+                <select
+                  className="select-field"
+                  value={queueType}
+                  onChange={(e) => setQueueType(e.target.value)}
+                >
                   <option value="Standard">Standard</option>
                   <option value="Synchronization">Synchronization (Auto-Sync)</option>
                 </select>
@@ -303,7 +484,12 @@ export default function AddUrlDialog({
               {queueType === 'Synchronization' && (
                 <div className="form-group animate-fade-in">
                   <Label>Sync Interval (Minutes)</Label>
-                  <input type="number" className="input-field" value={syncIntervalMins} onChange={e => setSyncIntervalMins(parseInt(e.target.value) || 60)} />
+                  <input
+                    type="number"
+                    className="input-field"
+                    value={syncIntervalMins}
+                    onChange={(e) => setSyncIntervalMins(parseInt(e.target.value) || 60)}
+                  />
                 </div>
               )}
             </div>
@@ -323,7 +509,7 @@ export default function AddUrlDialog({
                 className="input-field"
                 style={{ width: 'auto' }}
                 value={scheduleAt}
-                onChange={e => setScheduleAt(e.target.value)}
+                onChange={(e) => setScheduleAt(e.target.value)}
               />
             </div>
           </div>
@@ -331,8 +517,14 @@ export default function AddUrlDialog({
 
         {/* Footer */}
         <div className="dialog-footer">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary flex items-center gap-2" onClick={handleOk} disabled={!url.trim()}>
+          <button className="btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn-primary flex items-center gap-2"
+            onClick={handleOk}
+            disabled={!url.trim()}
+          >
             <Download size={14} />
             Add Download
           </button>

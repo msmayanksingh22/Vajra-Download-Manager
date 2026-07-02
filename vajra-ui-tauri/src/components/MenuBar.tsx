@@ -8,8 +8,17 @@ import { exportDownloadsJson, exportDownloadsCsv, importDownloads } from '../imp
 import { toast } from 'sonner';
 
 export default function MenuBar({
-  onAdd, onGrabber, onOptions, onPauseAll, onResumeAll, onHelp, onAbout,
-  onSpider, onScheduler, onBatchRename, onClearCompleted,
+  onAdd,
+  onGrabber,
+  onOptions,
+  onPauseAll,
+  onResumeAll,
+  onHelp,
+  onAbout,
+  onSpider,
+  onScheduler,
+  onBatchRename,
+  onClearCompleted,
 }: {
   onAdd: () => void;
   onGrabber: () => void;
@@ -48,41 +57,35 @@ export default function MenuBar({
     else setThemePref('system');
   };
 
-
-  const handleMenuClick = (name: string) =>
-    setActiveMenu(activeMenu === name ? null : name);
+  const handleMenuClick = (name: string) => setActiveMenu(activeMenu === name ? null : name);
 
   const handleAction = (action: string) => {
     setActiveMenu(null);
-    if      (action === 'add')       onAdd();
-    else if (action === 'batch')     onGrabber();
-    else if (action === 'spider')    onSpider();
-    else if (action === 'options')   onOptions();
-    else if (action === 'pauseAll')  onPauseAll();
+    if (action === 'add') onAdd();
+    else if (action === 'batch') onGrabber();
+    else if (action === 'spider') onSpider();
+    else if (action === 'options') onOptions();
+    else if (action === 'pauseAll') onPauseAll();
     else if (action === 'resumeAll') onResumeAll();
     else if (action === 'scheduler') onScheduler();
-    else if (action === 'rename')    onBatchRename();
-    else if (action === 'clear')     onClearCompleted();
+    else if (action === 'rename') onBatchRename();
+    else if (action === 'clear') onClearCompleted();
     else if (action === 'exportJson') {
       const downloads = useDownloadStore.getState().getSortedAndFilteredDownloads();
       exportDownloadsJson(downloads);
       toast.success('Exported as JSON');
-    }
-    else if (action === 'exportCsv') {
+    } else if (action === 'exportCsv') {
       const downloads = useDownloadStore.getState().getSortedAndFilteredDownloads();
       exportDownloadsCsv(downloads);
       toast.success('Exported as CSV');
-    }
-    else if (action === 'import') {
+    } else if (action === 'import') {
       fileInputRef.current?.click();
-    }
-    else if (action === 'exit')      invoke('cmd_quit_app').catch(console.error);
-    else if (action === 'help')      onHelp();
-    else if (action === 'about')     onAbout();
+    } else if (action === 'exit') invoke('cmd_quit_app').catch(console.error);
+    else if (action === 'help') onHelp();
+    else if (action === 'about') onAbout();
   };
 
-  const menuBtnClass = (name: string) =>
-    `menu-bar-btn${activeMenu === name ? ' active' : ''}`;
+  const menuBtnClass = (name: string) => `menu-bar-btn${activeMenu === name ? ' active' : ''}`;
 
   const dropdownStyle: React.CSSProperties = {
     position: 'absolute',
@@ -113,7 +116,15 @@ export default function MenuBar({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const MenuItem = ({ label, action, shortcut }: { label: string; action: string; shortcut?: string }) => (
+  const MenuItem = ({
+    label,
+    action,
+    shortcut,
+  }: {
+    label: string;
+    action: string;
+    shortcut?: string;
+  }) => (
     <button
       className="menu-dropdown-item"
       onMouseDown={(e) => {
@@ -129,21 +140,23 @@ export default function MenuBar({
 
   const MenuDivider = () => <div className="menu-dropdown-divider" />;
 
-  const themeIcon = themePref === 'dark' ? MoonStar : themePref === 'light' ? SunMedium : MonitorSmartphone;
+  const themeIcon =
+    themePref === 'dark' ? MoonStar : themePref === 'light' ? SunMedium : MonitorSmartphone;
   const ThemeIcon = themeIcon;
   const themeLabel = themePref === 'system' ? 'System' : themePref === 'light' ? 'Light' : 'Dark';
 
   return (
-    <div
-      ref={menuRef}
-      className="menubar-root"
-    >
+    <div ref={menuRef} className="menubar-root">
       {/* Left: Brand + Menu Items */}
       <div className="menubar-left">
         {/* Brand */}
         <div className="menubar-brand">
           <div className="menubar-logo">
-            <img src="/logo.png" alt="Vajra" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 3 }} />
+            <img
+              src="/logo.png"
+              alt="Vajra"
+              style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 3 }}
+            />
           </div>
           <span className="menubar-brand-text">VAJRA</span>
         </div>
@@ -164,7 +177,13 @@ export default function MenuBar({
               <MenuItem label={t('Export as CSV')} action="exportCsv" />
               <MenuDivider />
               <MenuItem label={t('Exit Application')} action="exit" shortcut="Alt+F4" />
-              <input type="file" accept=".json,.csv" style={{ display: 'none' }} ref={fileInputRef} onChange={handleImport} />
+              <input
+                type="file"
+                accept=".json,.csv"
+                style={{ display: 'none' }}
+                ref={fileInputRef}
+                onChange={handleImport}
+              />
             </div>
           )}
         </div>
@@ -176,12 +195,12 @@ export default function MenuBar({
           </button>
           {activeMenu === 'Actions' && (
             <div style={dropdownStyle}>
-              <MenuItem label={t('Pause All Active')}   action="pauseAll" />
-              <MenuItem label={t('Resume All Paused')}  action="resumeAll" />
+              <MenuItem label={t('Pause All Active')} action="pauseAll" />
+              <MenuItem label={t('Resume All Paused')} action="resumeAll" />
               <MenuDivider />
-              <MenuItem label={t('Scheduler')}          action="scheduler" />
-              <MenuItem label={t('Batch Rename')}       action="rename" />
-              <MenuItem label={t('Clear Completed')}    action="clear" />
+              <MenuItem label={t('Scheduler')} action="scheduler" />
+              <MenuItem label={t('Batch Rename')} action="rename" />
+              <MenuItem label={t('Clear Completed')} action="clear" />
               <MenuDivider />
               <MenuItem label={t('Settings & Options')} action="options" shortcut="Ctrl+," />
             </div>
@@ -196,7 +215,7 @@ export default function MenuBar({
           {activeMenu === 'Help' && (
             <div style={dropdownStyle}>
               <MenuItem label={t('Help Documentation')} action="help" shortcut="F1" />
-              <MenuItem label={t('About Vajra')}        action="about" />
+              <MenuItem label={t('About Vajra')} action="about" />
             </div>
           )}
         </div>

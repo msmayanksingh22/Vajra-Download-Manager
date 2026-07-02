@@ -23,7 +23,7 @@ import ImportContainerDialog from './components/Dialogs/ImportContainerDialog';
 import AboutDialog from './components/Dialogs/AboutDialog';
 import HelpDialog from './components/Dialogs/HelpDialog';
 import OnboardingModal from './components/Dialogs/OnboardingModal';
- 
+
 import { playSound } from './audio';
 import { Toaster, toast } from 'sonner';
 import { readText } from '@tauri-apps/plugin-clipboard-manager';
@@ -36,18 +36,18 @@ import { useShallow } from 'zustand/react/shallow';
 
 export default function App() {
   const [isConnected, setIsConnected] = useState(true);
-  const config = useConfigStore(useShallow(state => state.config));
-  const fetchConfig = useConfigStore(state => state.fetchConfig);
-  const downloads = useDownloadStore(useShallow(s => s.getSortedAndFilteredDownloads()));
-  const downloadsMap = useDownloadStore(state => state.downloads);
-  const selectedIds = useDownloadStore(state => state.selectedIds);
+  const config = useConfigStore(useShallow((state) => state.config));
+  const fetchConfig = useConfigStore((state) => state.fetchConfig);
+  const downloads = useDownloadStore(useShallow((s) => s.getSortedAndFilteredDownloads()));
+  const downloadsMap = useDownloadStore((state) => state.downloads);
+  const selectedIds = useDownloadStore((state) => state.selectedIds);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const selectDownload = useDownloadStore(state => state.selectDownload);
+  const selectDownload = useDownloadStore((state) => state.selectDownload);
 
   const [activeCategory, setActiveCategory] = useState('All Downloads');
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [isBatchRenameModalOpen, setBatchRenameModalOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
@@ -70,61 +70,61 @@ export default function App() {
     const handler = () => spawnAddUrlWindow('');
     document.addEventListener('vajra:open-add-url', handler);
     return () => document.removeEventListener('vajra:open-add-url', handler);
-  // spawnAddUrlWindow is stable (defined above and captured in closure)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // spawnAddUrlWindow is stable (defined above and captured in closure)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const isSpawningAddUrl = useRef<boolean>(false);
 
   const spawnAddUrlWindow = async (url = '', filename = '') => {
-      if (isSpawningAddUrl.current) return;
-      isSpawningAddUrl.current = true;
-      try {
-        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-        const existing = await WebviewWindow.getByLabel('add-url');
-        if (existing) {
-          if (url) {
-            const { emit } = await import('@tauri-apps/api/event');
-            await emit('update-add-url', { url, filename });
-          }
-          await existing.unminimize().catch(console.error);
-          await existing.setAlwaysOnTop(true).catch(console.error);
-          await existing.setAlwaysOnTop(false).catch(console.error);
-          await existing.setFocus().catch(console.error);
-          isSpawningAddUrl.current = false;
-          return;
+    if (isSpawningAddUrl.current) return;
+    isSpawningAddUrl.current = true;
+    try {
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      const existing = await WebviewWindow.getByLabel('add-url');
+      if (existing) {
+        if (url) {
+          const { emit } = await import('@tauri-apps/api/event');
+          await emit('update-add-url', { url, filename });
         }
-        const webview = new WebviewWindow('add-url', {
-          url: `/?window=addUrl&url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`,
-          title: 'Add New Download',
-          width: 560,
-          height: 620,
-          minWidth: 480,
-          minHeight: 520,
-          resizable: true,
-          maximizable: false,
-          decorations: false,
-          center: true,
-          focus: true,
-          alwaysOnTop: false,
-          visible: false,
-        });
-
-        webview.once('tauri://created', async () => {
-          await webview.show().catch(console.error);
-          await webview.setAlwaysOnTop(true).catch(console.error);
-          await webview.setAlwaysOnTop(false).catch(console.error);
-          await webview.setFocus().catch(console.error);
-        });
-
-        webview.once('tauri://destroyed', () => {
-          // cleanup
-        });
-      } catch (e) {
-        console.error(e);
-      } finally {
+        await existing.unminimize().catch(console.error);
+        await existing.setAlwaysOnTop(true).catch(console.error);
+        await existing.setAlwaysOnTop(false).catch(console.error);
+        await existing.setFocus().catch(console.error);
         isSpawningAddUrl.current = false;
+        return;
       }
+      const webview = new WebviewWindow('add-url', {
+        url: `/?window=addUrl&url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`,
+        title: 'Add New Download',
+        width: 560,
+        height: 620,
+        minWidth: 480,
+        minHeight: 520,
+        resizable: true,
+        maximizable: false,
+        decorations: false,
+        center: true,
+        focus: true,
+        alwaysOnTop: false,
+        visible: false,
+      });
+
+      webview.once('tauri://created', async () => {
+        await webview.show().catch(console.error);
+        await webview.setAlwaysOnTop(true).catch(console.error);
+        await webview.setAlwaysOnTop(false).catch(console.error);
+        await webview.setFocus().catch(console.error);
+      });
+
+      webview.once('tauri://destroyed', () => {
+        // cleanup
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      isSpawningAddUrl.current = false;
+    }
   };
 
   useKeyboardShortcuts(searchInputRef as React.RefObject<HTMLInputElement>, spawnAddUrlWindow);
@@ -132,7 +132,7 @@ export default function App() {
   useEffect(() => {
     let unlistenDrop: () => void;
     let unlistenIntercept: () => void;
-    
+
     const setup = async () => {
       unlistenDrop = await listen<{ paths: string[] }>('tauri://drop', (event) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -142,16 +142,19 @@ export default function App() {
           spawnAddUrlWindow(paths[0], '');
         }
       });
-      
-      unlistenIntercept = await listen<{ url: string, filename: string }>('vajra-intercepted', (event) => {
-        spawnAddUrlWindow(event.payload.url, event.payload.filename);
-      });
+
+      unlistenIntercept = await listen<{ url: string; filename: string }>(
+        'vajra-intercepted',
+        (event) => {
+          spawnAddUrlWindow(event.payload.url, event.payload.filename);
+        },
+      );
     };
-    
+
     setup();
-    return () => { 
-      if (unlistenDrop) unlistenDrop(); 
-      if (unlistenIntercept) unlistenIntercept(); 
+    return () => {
+      if (unlistenDrop) unlistenDrop();
+      if (unlistenIntercept) unlistenIntercept();
     };
   }, []);
 
@@ -165,7 +168,9 @@ export default function App() {
     try {
       const dl = await api.get(id);
       if (dl && dl.tags && dl.tags.includes('cli')) return;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     if (completedWindowsShown.current.has(id)) return;
     completedWindowsShown.current.add(id);
@@ -202,12 +207,12 @@ export default function App() {
         await webview.setFocus().catch(console.error);
         playSound('success');
       });
-      
+
       webview.once('tauri://destroyed', () => {
         // window closed
       });
     } catch (e) {
-      console.error("Failed to spawn download complete window:", e);
+      console.error('Failed to spawn download complete window:', e);
       toast.error(`Failed to show complete window: ${String(e)}`);
       completedWindowsShown.current.delete(id);
     }
@@ -217,9 +222,11 @@ export default function App() {
     try {
       const dl = await api.get(id);
       if (dl && dl.tags && dl.tags.includes('cli')) return;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
-    console.log("[spawnDownloadFailedWindow] Spawning failed window for:", id);
+    console.log('[spawnDownloadFailedWindow] Spawning failed window for:', id);
     if (failedWindowsShown.current.has(id)) return;
     failedWindowsShown.current.add(id);
 
@@ -255,12 +262,12 @@ export default function App() {
         await webview.setFocus().catch(console.error);
         playSound('fail');
       });
-      
+
       webview.once('tauri://destroyed', () => {
         failedWindowsShown.current.delete(id);
       });
     } catch (e) {
-      console.error("Failed to spawn download failed window:", e);
+      console.error('Failed to spawn download failed window:', e);
       toast.error(`Failed to show failed window: ${String(e)}`);
       failedWindowsShown.current.delete(id);
     }
@@ -269,7 +276,7 @@ export default function App() {
   const spawnProgressWindow = useCallback(async (id: string) => {
     if (activeProgressWindows.current.has(id)) return;
     activeProgressWindows.current.add(id);
-    
+
     const item = useDownloadStore.getState().downloads[id];
     if (item) {
       localStorage.setItem(`vajra_progress_init_${id}`, JSON.stringify(item));
@@ -314,11 +321,14 @@ export default function App() {
   const hasInitialFetchCompleted = useRef(false);
 
   const fetchDownloads = useCallback(() => {
-    api.list().then(res => {
-      useDownloadStore.getState().setDownloads(res.items || []);
-      hasInitialFetchCompleted.current = true;
-      lastSSEUpdate.current = Date.now();
-    }).catch(console.error);
+    api
+      .list()
+      .then((res) => {
+        useDownloadStore.getState().setDownloads(res.items || []);
+        hasInitialFetchCompleted.current = true;
+        lastSSEUpdate.current = Date.now();
+      })
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -332,23 +342,27 @@ export default function App() {
     let timerId: any = null;
     const runPoll = () => {
       if (unmounted) return;
-      
+
       const active = Object.values(useDownloadStore.getState().downloads).some(
-        dl => dl.status === 'downloading' || dl.status === 'connecting' || dl.status === 'verifying'
+        (dl) =>
+          dl.status === 'downloading' || dl.status === 'connecting' || dl.status === 'verifying',
       );
       const sseIdleTime = Date.now() - lastSSEUpdate.current;
       const threshold = active ? 2500 : 10000;
 
       if (sseIdleTime > threshold) {
-        api.list().then(res => {
-          if (!unmounted) {
-            useDownloadStore.getState().setDownloads(res.items || []);
-            hasInitialFetchCompleted.current = true;
-            lastSSEUpdate.current = Date.now();
-          }
-        }).catch(err => {
-          console.error("[vajra-poll] Failed to poll downloads:", err);
-        });
+        api
+          .list()
+          .then((res) => {
+            if (!unmounted) {
+              useDownloadStore.getState().setDownloads(res.items || []);
+              hasInitialFetchCompleted.current = true;
+              lastSSEUpdate.current = Date.now();
+            }
+          })
+          .catch((err) => {
+            console.error('[vajra-poll] Failed to poll downloads:', err);
+          });
       }
 
       const delay = active ? 2000 : 10000;
@@ -359,13 +373,16 @@ export default function App() {
     timerId = setTimeout(runPoll, 2000);
 
     const healthInterval = setInterval(() => {
-      api.health().then(res => {
-        if (res?.status === 'ok') {
-          setIsConnected(true);
-        }
-      }).catch(() => {
-        setIsConnected(false);
-      });
+      api
+        .health()
+        .then((res) => {
+          if (res?.status === 'ok') {
+            setIsConnected(true);
+          }
+        })
+        .catch(() => {
+          setIsConnected(false);
+        });
     }, 5000);
 
     listen('open-progress-window', async (event) => {
@@ -402,15 +419,19 @@ export default function App() {
           await webview.setFocus().catch(console.error);
         });
         webview.once('tauri://error', (e) => console.error(e));
-      } catch(e) { console.error("Spawn progress window error:", e); }
-    }).then(unsub => {
-      if (unmounted) unsub();
-      else unlistenProgress = unsub;
-    }).catch(console.error);
+      } catch (e) {
+        console.error('Spawn progress window error:', e);
+      }
+    })
+      .then((unsub) => {
+        if (unmounted) unsub();
+        else unlistenProgress = unsub;
+      })
+      .catch(console.error);
 
     listen('open-addurl-window', async (event) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const p = event.payload as any || {};
+      const p = (event.payload as any) || {};
       const q = new URLSearchParams();
       if (p.url) q.set('url', p.url);
       if (p.filename) q.set('filename', p.filename);
@@ -442,32 +463,43 @@ export default function App() {
           await webview.setFocus().catch(console.error);
         });
         webview.once('tauri://error', (e) => console.error(e));
-      } catch(e) { console.error("Spawn addurl window error:", e); }
-    }).then(unsub => {
-      if (unmounted) unsub();
-      else unlistenAdd = unsub;
-    }).catch(console.error);
+      } catch (e) {
+        console.error('Spawn addurl window error:', e);
+      }
+    })
+      .then((unsub) => {
+        if (unmounted) unsub();
+        else unlistenAdd = unsub;
+      })
+      .catch(console.error);
 
     let unsubSSE: (() => void) | null = null;
-    initDownloadStoreTauriEvents().then(unsub => {
-      if (unmounted) unsub();
-      else unsubSSE = unsub;
-    }).catch(console.error);
+    initDownloadStoreTauriEvents()
+      .then((unsub) => {
+        if (unmounted) unsub();
+        else unsubSSE = unsub;
+      })
+      .catch(console.error);
 
     let unlistenVajraApp: (() => void) | null = null;
     listen('vajra-event', (event: any) => {
       lastSSEUpdate.current = Date.now();
-      console.log("RECEIVED EVENT (App):", event);
+      console.log('RECEIVED EVENT (App):', event);
       const e = event.payload;
-      if ((e.event === 'state_change' && e.status === 'completed') || e.event === 'completed' || e.status === 'completed') {
+      if (
+        (e.event === 'state_change' && e.status === 'completed') ||
+        e.event === 'completed' ||
+        e.status === 'completed'
+      ) {
         const id = e.id || e.download_id;
         if (id) spawnDownloadCompleteWindow(id);
       }
-      
-    }).then(unsub => {
-      if (unmounted) unsub();
-      else unlistenVajraApp = unsub;
-    }).catch(console.error);
+    })
+      .then((unsub) => {
+        if (unmounted) unsub();
+        else unlistenVajraApp = unsub;
+      })
+      .catch(console.error);
 
     // Primary trigger: ProgressWindow emits this just before closing on completion.
     // More reliable than the Zustand subscriber because it has no timing race.
@@ -475,68 +507,93 @@ export default function App() {
     listen('vajra-download-complete', (event: any) => {
       const id = event.payload as string;
       if (id) spawnDownloadCompleteWindow(id);
-    }).then(unsub => {
-      if (unmounted) unsub();
-      else unlistenDownloadComplete = unsub;
-    }).catch(console.error);
+    })
+      .then((unsub) => {
+        if (unmounted) unsub();
+        else unlistenDownloadComplete = unsub;
+      })
+      .catch(console.error);
 
     let unlistenAddDialog: (() => void) | null = null;
     listen('open-add-url-dialog', () => {
-
       spawnAddUrlWindow();
-    }).then(unsub => {
-      if (unmounted) unsub();
-      else unlistenAddDialog = unsub;
-    }).catch(console.error);
+    })
+      .then((unsub) => {
+        if (unmounted) unsub();
+        else unlistenAddDialog = unsub;
+      })
+      .catch(console.error);
 
     let unlistenSpiderNl: (() => void) | null = null;
     listen('open-spider-with-nl', (event: any) => {
       const p = event.payload || {};
       ui.setSpiderInitial(p.url, p.extensions);
       ui.setSpiderModalOpen(true);
-    }).then(unsub => {
-      if (unmounted) unsub();
-      else unlistenSpiderNl = unsub;
-    }).catch(console.error);
+    })
+      .then((unsub) => {
+        if (unmounted) unsub();
+        else unlistenSpiderNl = unsub;
+      })
+      .catch(console.error);
 
     let unlistenPauseAll: (() => void) | null = null;
     listen('tray-pause-all', () => {
       handleStopAll();
-    }).then(unsub => {
-      if (unmounted) unsub();
-      else unlistenPauseAll = unsub;
-    }).catch(console.error);
+    })
+      .then((unsub) => {
+        if (unmounted) unsub();
+        else unlistenPauseAll = unsub;
+      })
+      .catch(console.error);
 
     let unlistenResumeAll: (() => void) | null = null;
     listen('tray-resume-all', () => {
       handleResumeAll();
-    }).then(unsub => {
-      if (unmounted) unsub();
-      else unlistenResumeAll = unsub;
-    }).catch(console.error);
+    })
+      .then((unsub) => {
+        if (unmounted) unsub();
+        else unlistenResumeAll = unsub;
+      })
+      .catch(console.error);
 
     const unsub = useDownloadStore.subscribe((state, prevState) => {
-      Object.values(state.downloads).forEach(dl => {
+      Object.values(state.downloads).forEach((dl) => {
         const prev = prevState.downloads[dl.id];
-        
+
         // Completion Check
-        if (hasInitialFetchCompleted.current && dl.status === 'completed' && prev && prev.status !== 'completed') {
+        if (
+          hasInitialFetchCompleted.current &&
+          dl.status === 'completed' &&
+          prev &&
+          prev.status !== 'completed'
+        ) {
           spawnDownloadCompleteWindow(dl.id);
         }
 
         // Failure Check with Auto-Retry and Failed Window Trigger
-        if (hasInitialFetchCompleted.current && dl.status === 'failed' && prev && prev.status !== 'failed') {
+        if (
+          hasInitialFetchCompleted.current &&
+          dl.status === 'failed' &&
+          prev &&
+          prev.status !== 'failed'
+        ) {
           const id = dl.id;
           const currentRetries = retryCounts.current[id] || 0;
           const maxRetries = config?.max_retries !== undefined ? config.max_retries : 2;
-          console.log(`[Zustand-Failed] Transition to failed detected for ${id}. Attempts: ${currentRetries}, Max allowed: ${maxRetries}`);
-          
+          console.log(
+            `[Zustand-Failed] Transition to failed detected for ${id}. Attempts: ${currentRetries}, Max allowed: ${maxRetries}`,
+          );
+
           if (currentRetries < maxRetries) {
             retryCounts.current[id] = currentRetries + 1;
             localStorage.setItem(`vajra_retry_count_${id}`, String(currentRetries + 1));
-            console.log(`[Auto-Retry] Triggering attempt ${currentRetries + 1}/${maxRetries} for ${id} in 2s...`);
-            toast.warning(`Download failed. Retrying... (Attempt ${currentRetries + 1}/${maxRetries})`);
-            
+            console.log(
+              `[Auto-Retry] Triggering attempt ${currentRetries + 1}/${maxRetries} for ${id} in 2s...`,
+            );
+            toast.warning(
+              `Download failed. Retrying... (Attempt ${currentRetries + 1}/${maxRetries})`,
+            );
+
             setTimeout(async () => {
               try {
                 await api.patch(id, { action: 'resume' });
@@ -560,7 +617,7 @@ export default function App() {
                   await progressWin.close().catch(console.error);
                 }
               } catch (err) {
-                console.error("Failed to close progress window:", err);
+                console.error('Failed to close progress window:', err);
               }
               spawnDownloadFailedWindow(id);
             })();
@@ -584,24 +641,34 @@ export default function App() {
       clearInterval(healthInterval);
       unsub();
     };
-  }, [spawnProgressWindow, fetchDownloads, fetchConfig, spawnDownloadCompleteWindow, spawnDownloadFailedWindow, config]);
+  }, [
+    spawnProgressWindow,
+    fetchDownloads,
+    fetchConfig,
+    spawnDownloadCompleteWindow,
+    spawnDownloadFailedWindow,
+    config,
+  ]);
 
   // Drag and Drop
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    getCurrentWindow().onDragDropEvent((event) => {
-      if (event.payload.type === 'drop') {
-        const files = event.payload.paths;
-        if (files && files.length > 0) {
-          const file = files[0];
-          if (file.toLowerCase().endsWith('.torrent')) {
-            spawnAddUrlWindow(file);
+    getCurrentWindow()
+      .onDragDropEvent((event) => {
+        if (event.payload.type === 'drop') {
+          const files = event.payload.paths;
+          if (files && files.length > 0) {
+            const file = files[0];
+            if (file.toLowerCase().endsWith('.torrent')) {
+              spawnAddUrlWindow(file);
+            }
           }
         }
-      }
-    }).then(fn => {
-      unlisten = fn;
-    }).catch(console.error);
+      })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(console.error);
 
     return () => {
       if (unlisten) unlisten();
@@ -627,20 +694,24 @@ export default function App() {
                   description: trimmed.length > 50 ? trimmed.substring(0, 47) + '...' : trimmed,
                   action: {
                     label: 'Add Download',
-                    onClick: () => spawnAddUrlWindow(trimmed)
+                    onClick: () => spawnAddUrlWindow(trimmed),
                   },
                   duration: 5000,
                 });
               }
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            /* ignore */
+          }
         });
       } catch (e) {
-        console.error("Failed to setup clipboard listener", e);
+        console.error('Failed to setup clipboard listener', e);
       }
     };
     setupClipboardListener();
-    return () => { if (unlisten) unlisten(); };
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   const handleMinimize = () => getCurrentWindow().minimize().catch(console.error);
@@ -668,21 +739,25 @@ export default function App() {
 
   const handlePause = async (id: string) => {
     if (!id) return;
-    try { 
-      await api.patch(id, { action: 'pause' }); 
+    try {
+      await api.patch(id, { action: 'pause' });
       fetchDownloads();
-    } catch(e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleResume = async (id: string) => {
     if (!id) return;
-    try { 
+    try {
       retryCounts.current[id] = 0;
       localStorage.removeItem(`vajra_retry_count_${id}`);
-      await api.patch(id, { action: 'resume' }); 
+      await api.patch(id, { action: 'resume' });
       fetchDownloads();
       spawnProgressWindow(id);
-    } catch(e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const executeDeleteSelected = async (deleteFromDisk: boolean, remember: boolean = false) => {
@@ -703,16 +778,20 @@ export default function App() {
   };
 
   const handleDeleteCompleted = async () => {
-    const completed = downloads.filter(d => d.status === 'completed');
+    const completed = downloads.filter((d) => d.status === 'completed');
     if (completed.length === 0) return;
     for (const d of completed) {
       try {
         await api.remove(d.id, false);
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        /* ignore */
+      }
     }
     fetchDownloads();
     useDownloadStore.getState().clearSelection();
-    toast.success(`Cleared ${completed.length} completed download${completed.length !== 1 ? 's' : ''}`);
+    toast.success(
+      `Cleared ${completed.length} completed download${completed.length !== 1 ? 's' : ''}`,
+    );
   };
 
   const handlePauseSelected = async () => {
@@ -746,61 +825,85 @@ export default function App() {
     for (const d of active) {
       await handlePause(d.id);
     }
-    if (active.length > 0) toast.info(`Stopped ${active.length} active download${active.length !== 1 ? 's' : ''}`);
+    if (active.length > 0)
+      toast.info(`Stopped ${active.length} active download${active.length !== 1 ? 's' : ''}`);
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleGridAction = useCallback(async (item: any, action: string) => {
-    if (action === 'pause') handlePause(item.id);
-    else if (action === 'resume') handleResume(item.id);
-    else if (action === 'delete') {
-      useDownloadStore.getState().clearSelection();
-      useDownloadStore.getState().selectDownload(item.id, false);
-      ui.setDeleteModalOpen(true);
-    }
-    else if (action === 'open') {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('open_file_path', { path: item.output_path });
-      } catch (e) { console.error("Failed to open file", e); }
-    }
-    else if (action === 'properties') {
-      ui.setPropertiesModalItem(item);
-      ui.setPropertiesModalOpen(true);
-    }
-    else if (action === 'refresh_url') {
-      ui.setRefreshModalItem(item);
-      ui.setRefreshModalOpen(true);
-    }
-    else if (action === 'show_progress') {
-      spawnProgressWindow(item.id);
-    }
-  }, [ui, spawnProgressWindow]);
+  const handleGridAction = useCallback(
+    async (item: any, action: string) => {
+      if (action === 'pause') handlePause(item.id);
+      else if (action === 'resume') handleResume(item.id);
+      else if (action === 'delete') {
+        useDownloadStore.getState().clearSelection();
+        useDownloadStore.getState().selectDownload(item.id, false);
+        ui.setDeleteModalOpen(true);
+      } else if (action === 'open') {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          await invoke('open_file_path', { path: item.output_path });
+        } catch (e) {
+          console.error('Failed to open file', e);
+        }
+      } else if (action === 'properties') {
+        ui.setPropertiesModalItem(item);
+        ui.setPropertiesModalOpen(true);
+      } else if (action === 'refresh_url') {
+        ui.setRefreshModalItem(item);
+        ui.setRefreshModalOpen(true);
+      } else if (action === 'show_progress') {
+        spawnProgressWindow(item.id);
+      }
+    },
+    [ui, spawnProgressWindow],
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleDoubleClick = useCallback((item: any) => {
-    if (item.status === 'completed') {
-      handleGridAction(item, 'open');
-    } else if (item.status === 'downloading' || item.status === 'connecting') {
-      spawnProgressWindow(item.id);
-    } else {
-      handleGridAction(item, 'properties');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spawnProgressWindow, handleGridAction]);
+  const handleDoubleClick = useCallback(
+    (item: any) => {
+      if (item.status === 'completed') {
+        handleGridAction(item, 'open');
+      } else if (item.status === 'downloading' || item.status === 'connecting') {
+        spawnProgressWindow(item.id);
+      } else {
+        handleGridAction(item, 'properties');
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [spawnProgressWindow, handleGridAction],
+  );
 
-  const canResume = useMemo(() => downloads.some(d => selectedIds.has(d.id) && (d.status === 'paused' || d.status === 'failed')), [downloads, selectedIds]);
-  const isSelectedFailed = useMemo(() => downloads.some(d => selectedIds.has(d.id) && d.status === 'failed'), [downloads, selectedIds]);
-  const canPause = useMemo(() => downloads.some(d => selectedIds.has(d.id) && (d.status === 'downloading' || d.status === 'connecting')), [downloads, selectedIds]);
-  const canStopAll = useMemo(() => downloads.some(d => d.status === 'downloading' || d.status === 'connecting'), [downloads]);
+  const canResume = useMemo(
+    () =>
+      downloads.some(
+        (d) => selectedIds.has(d.id) && (d.status === 'paused' || d.status === 'failed'),
+      ),
+    [downloads, selectedIds],
+  );
+  const isSelectedFailed = useMemo(
+    () => downloads.some((d) => selectedIds.has(d.id) && d.status === 'failed'),
+    [downloads, selectedIds],
+  );
+  const canPause = useMemo(
+    () =>
+      downloads.some(
+        (d) => selectedIds.has(d.id) && (d.status === 'downloading' || d.status === 'connecting'),
+      ),
+    [downloads, selectedIds],
+  );
+  const canStopAll = useMemo(
+    () => downloads.some((d) => d.status === 'downloading' || d.status === 'connecting'),
+    [downloads],
+  );
   const canDelete = selectedIds.size > 0;
 
   const filteredDownloads = useMemo(() => {
     if (!searchQuery.trim()) return downloads;
     const q = searchQuery.toLowerCase();
-    return downloads.filter(d => 
-      (d.filename && d.filename.toLowerCase().includes(q)) ||
-      (d.url && d.url.toLowerCase().includes(q))
+    return downloads.filter(
+      (d) =>
+        (d.filename && d.filename.toLowerCase().includes(q)) ||
+        (d.url && d.url.toLowerCase().includes(q)),
     );
   }, [downloads, searchQuery]);
 
@@ -823,18 +926,30 @@ export default function App() {
       />
 
       {/* OS window controls — top-right overlay */}
-      <div className="absolute no-drag" style={{ top: 0, right: 0, height: 32, display: 'flex', zIndex: 50 }}>
-        {([
-          { icon: <Minus size={12} />, title: 'Minimize', action: handleMinimize, danger: false },
-          { icon: <Square size={11} />, title: 'Maximize', action: handleMaximize, danger: false },
-          { icon: <XIcon size={13} />, title: 'Close',    action: handleClose,    danger: true  },
-        ] as { icon: React.ReactNode; title: string; action: () => void; danger: boolean }[]).map(({ icon, title, action, danger }) => (
+      <div
+        className="absolute no-drag"
+        style={{ top: 0, right: 0, height: 32, display: 'flex', zIndex: 50 }}
+      >
+        {(
+          [
+            { icon: <Minus size={12} />, title: 'Minimize', action: handleMinimize, danger: false },
+            {
+              icon: <Square size={11} />,
+              title: 'Maximize',
+              action: handleMaximize,
+              danger: false,
+            },
+            { icon: <XIcon size={13} />, title: 'Close', action: handleClose, danger: true },
+          ] as { icon: React.ReactNode; title: string; action: () => void; danger: boolean }[]
+        ).map(({ icon, title, action, danger }) => (
           <button
             key={title}
             title={title}
             onClick={action}
             className={`window-chrome-btn${danger ? ' danger' : ''}`}
-          >{icon}</button>
+          >
+            {icon}
+          </button>
         ))}
       </div>
 
@@ -880,7 +995,7 @@ export default function App() {
           canPause={canPause}
           canStopAll={canStopAll}
           canDelete={canDelete}
-          canDeleteCompleted={downloads.some(d => d.status === 'completed')}
+          canDeleteCompleted={downloads.some((d) => d.status === 'completed')}
           onShowProgress={() => {
             if (selectedIds.size === 1) {
               const d = downloadsMap[Array.from(selectedIds)[0]];
@@ -904,7 +1019,7 @@ export default function App() {
               type="text"
               placeholder="Search (Ctrl+F)"
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="search-input no-drag"
             />
           </div>
@@ -938,22 +1053,41 @@ export default function App() {
       </div>
 
       {/* Status bar */}
-      <div
-        className="status-bar no-drag"
-        aria-live="polite"
-        aria-label="Status bar"
-      >
+      <div className="status-bar no-drag" aria-live="polite" aria-label="Status bar">
         <div className="flex items-center" style={{ gap: 12 }}>
           <span>{downloads.length} downloads</span>
           <span className="status-bar-sep" />
-          <span>{downloads.filter(d => d.status === 'downloading' || d.status === 'connecting').length} active</span>
+          <span>
+            {
+              downloads.filter((d) => d.status === 'downloading' || d.status === 'connecting')
+                .length
+            }{' '}
+            active
+          </span>
         </div>
         <div className="flex items-center" style={{ gap: 12 }}>
           <div className="flex items-center" style={{ gap: 4 }}>
-            <span style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 9 }} className="text-4">Speed:</span>
+            <span
+              style={{
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                fontSize: 9,
+              }}
+              className="text-4"
+            >
+              Speed:
+            </span>
             <span className="text-1" style={{ fontWeight: 500 }}>
               {(() => {
-                const totalSpeed = downloads.reduce((sum, d) => sum + ((d.status === 'downloading' || d.status === 'connecting') ? d.speed_bps || 0 : 0), 0);
+                const totalSpeed = downloads.reduce(
+                  (sum, d) =>
+                    sum +
+                    (d.status === 'downloading' || d.status === 'connecting'
+                      ? d.speed_bps || 0
+                      : 0),
+                  0,
+                );
                 return `${(totalSpeed / (1024 * 1024)).toFixed(1)} MB/s`;
               })()}
             </span>
@@ -969,7 +1103,12 @@ export default function App() {
       {/* Dialogs */}
 
       {ui.isSettingsModalOpen && (
-        <OptionsDialog onClose={() => { ui.setSettingsModalOpen(false); fetchConfig(); }} />
+        <OptionsDialog
+          onClose={() => {
+            ui.setSettingsModalOpen(false);
+            fetchConfig();
+          }}
+        />
       )}
 
       {ui.isSchedulerModalOpen && (
@@ -988,20 +1127,31 @@ export default function App() {
         <RefreshUrlDialog
           item={ui.refreshModalItem}
           onClose={() => ui.setRefreshModalOpen(false)}
-          onOk={() => { ui.setRefreshModalOpen(false); fetchDownloads(); }}
+          onOk={() => {
+            ui.setRefreshModalOpen(false);
+            fetchDownloads();
+          }}
         />
       )}
 
       {ui.isGrabberModalOpen && (
         <div className="dialog-overlay">
-          <GrabberDialog onClose={() => { ui.setGrabberModalOpen(false); fetchDownloads(); }} />
+          <GrabberDialog
+            onClose={() => {
+              ui.setGrabberModalOpen(false);
+              fetchDownloads();
+            }}
+          />
         </div>
       )}
 
       {isBatchRenameModalOpen && (
         <BatchRenameDialog
-          items={downloads.filter(d => selectedIds.has(d.id))}
-          onClose={() => { setBatchRenameModalOpen(false); fetchDownloads(); }}
+          items={downloads.filter((d) => selectedIds.has(d.id))}
+          onClose={() => {
+            setBatchRenameModalOpen(false);
+            fetchDownloads();
+          }}
         />
       )}
 
@@ -1010,7 +1160,11 @@ export default function App() {
         onOpenChange={ui.setSpiderModalOpen}
         onBatchAdd={async (urls) => {
           for (const url of urls) {
-            try { await api.add({ url }); } catch (e) { console.error('Failed to batch add URL', url, e); }
+            try {
+              await api.add({ url });
+            } catch (e) {
+              console.error('Failed to batch add URL', url, e);
+            }
           }
           fetchDownloads();
         }}
@@ -1040,12 +1194,8 @@ export default function App() {
           }}
         />
       )}
-      {ui.isAboutModalOpen && (
-        <AboutDialog onClose={() => ui.setAboutModalOpen(false)} />
-      )}
-      {ui.isHelpModalOpen && (
-        <HelpDialog onClose={() => ui.setHelpModalOpen(false)} />
-      )}
+      {ui.isAboutModalOpen && <AboutDialog onClose={() => ui.setAboutModalOpen(false)} />}
+      {ui.isHelpModalOpen && <HelpDialog onClose={() => ui.setHelpModalOpen(false)} />}
 
       {showOnboarding && <OnboardingModal onClose={dismissOnboarding} />}
     </div>

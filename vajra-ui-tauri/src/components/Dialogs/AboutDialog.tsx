@@ -6,11 +6,7 @@ import { useDialogEscape } from '../../hooks/useDialogEscape';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { api } from '../../api';
 
-export default function AboutDialog({
-  onClose,
-}: {
-  onClose: () => void;
-}) {
+export default function AboutDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const [version, setVersion] = useState<string>('...');
   const [engineVersion, setEngineVersion] = useState<string>('...');
@@ -18,10 +14,15 @@ export default function AboutDialog({
   const trapRef = useFocusTrap();
 
   useEffect(() => {
-    getVersion().then(v => setVersion(v)).catch(() => setVersion('0.2.0'));
-    api.health().then((res: any) => {
-      setEngineVersion(res?.version || res?.daemon_version || 'N/A');
-    }).catch(() => setEngineVersion('N/A'));
+    getVersion()
+      .then((v) => setVersion(v))
+      .catch(() => setVersion('0.2.0'));
+    api
+      .health()
+      .then((res: any) => {
+        setEngineVersion(res?.version || res?.daemon_version || 'N/A');
+      })
+      .catch(() => setEngineVersion('N/A'));
   }, []);
 
   return (
@@ -30,7 +31,7 @@ export default function AboutDialog({
         ref={trapRef}
         className="dialog-panel"
         style={{ width: 400 }}
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="about-dialog-title"
@@ -47,9 +48,12 @@ export default function AboutDialog({
         </div>
 
         {/* Body */}
-        <div className="dialog-body flex flex-col items-center" style={{ gap: 'var(--sp-4)', padding: 'var(--sp-5)' }}>
+        <div
+          className="dialog-body flex flex-col items-center"
+          style={{ gap: 'var(--sp-4)', padding: 'var(--sp-5)' }}
+        >
           {/* Logo container */}
-          <div 
+          <div
             className="flex items-center justify-center"
             style={{
               width: 100,
@@ -61,34 +65,57 @@ export default function AboutDialog({
               padding: '16px',
             }}
           >
-            <img 
-              src="/logo.png" 
-              alt="Vajra Logo" 
-              style={{ 
-                width: '100%', 
-                height: '100%', 
+            <img
+              src="/logo.png"
+              alt="Vajra Logo"
+              style={{
+                width: '100%',
+                height: '100%',
                 objectFit: 'contain',
-              }} 
+              }}
             />
           </div>
 
           <div className="text-center">
-            <h3 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 700, color: 'var(--color-text-1)', marginBottom: 2 }}>
+            <h3
+              style={{
+                fontSize: 'var(--text-lg-size)',
+                fontWeight: 700,
+                color: 'var(--color-text-1)',
+                marginBottom: 2,
+              }}
+            >
               Vajra Download Manager
             </h3>
-            <p style={{ fontSize: 'var(--text-xs-size)', color: 'var(--color-brand)', fontWeight: 600, letterSpacing: '0.05em', marginBottom: 12 }}>
+            <p
+              style={{
+                fontSize: 'var(--text-xs-size)',
+                color: 'var(--color-brand)',
+                fontWeight: 600,
+                letterSpacing: '0.05em',
+                marginBottom: 12,
+              }}
+            >
               v{version} (Beta)
             </p>
-            <p style={{ fontSize: 'var(--text-sm-size)', color: 'var(--color-text-2)', lineHeight: 1.5, maxWidth: '280px', margin: '0 auto' }}>
+            <p
+              style={{
+                fontSize: 'var(--text-sm-size)',
+                color: 'var(--color-text-2)',
+                lineHeight: 1.5,
+                maxWidth: '280px',
+                margin: '0 auto',
+              }}
+            >
               A high-performance, concurrent download accelerator powered by a native Rust core.
             </p>
           </div>
 
-          <div 
-            className="card-subtle w-full text-center" 
-            style={{ 
-              padding: 'var(--sp-3)', 
-              fontSize: 'var(--text-xs-size)', 
+          <div
+            className="card-subtle w-full text-center"
+            style={{
+              padding: 'var(--sp-3)',
+              fontSize: 'var(--text-xs-size)',
               color: 'var(--color-text-4)',
               backgroundColor: 'rgba(255, 255, 255, 0.01)',
               borderColor: 'var(--color-border-subtle)',

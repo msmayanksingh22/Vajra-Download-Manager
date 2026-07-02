@@ -7,7 +7,15 @@ interface OnboardingModalProps {
   onClose: () => void;
 }
 
-const Step = ({ number, title, children }: { number: number; title: string; children: React.ReactNode }) => (
+const Step = ({
+  number,
+  title,
+  children,
+}: {
+  number: number;
+  title: string;
+  children: React.ReactNode;
+}) => (
   <div style={{ display: 'flex', gap: 'var(--sp-3)', alignItems: 'flex-start' }}>
     <div
       style={{
@@ -60,9 +68,16 @@ export default function OnboardingModal({ onClose }: OnboardingModalProps) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-title"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      <div ref={trapRef} className="dialog-panel" style={{ maxWidth: 520, width: '90vw' }} onClick={e => e.stopPropagation()}>
+      <div
+        ref={trapRef}
+        className="dialog-panel"
+        style={{ maxWidth: 520, width: '90vw' }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="dialog-header">
           <div className="dialog-header-title" id="onboarding-title">
             <Blocks size={18} style={{ color: 'var(--color-brand)' }} />
@@ -90,8 +105,8 @@ export default function OnboardingModal({ onClose }: OnboardingModalProps) {
               lineHeight: 1.5,
             }}
           >
-            Vajra can intercept downloads right from your browser. Finish setup by
-            loading the unpacked extension once.
+            Vajra can intercept downloads right from your browser. Finish setup by loading the
+            unpacked extension once.
           </p>
 
           <Step number={1} title="Open Chrome/Edge Extensions">
@@ -123,8 +138,8 @@ export default function OnboardingModal({ onClose }: OnboardingModalProps) {
           </Step>
 
           <Step number={3} title="Load Unpacked">
-            Click <strong>Load unpacked</strong>, then select the extension folder
-            inside your Vajra installation:
+            Click <strong>Load unpacked</strong>, then select the extension folder inside your Vajra
+            installation:
             <code
               style={{
                 display: 'block',
@@ -141,8 +156,8 @@ export default function OnboardingModal({ onClose }: OnboardingModalProps) {
           </Step>
 
           <Step number={4} title="Start Browsing">
-            The extension will auto-connect to Vajra and intercept downloads. Hold{' '}
-            <kbd>Alt</kbd> while clicking a link to bypass interception.
+            The extension will auto-connect to Vajra and intercept downloads. Hold <kbd>Alt</kbd>{' '}
+            while clicking a link to bypass interception.
           </Step>
         </div>
 

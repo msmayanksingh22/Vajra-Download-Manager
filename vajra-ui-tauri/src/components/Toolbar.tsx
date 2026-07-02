@@ -1,27 +1,40 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  FilePlus, PlayCircle, PauseCircle, Eraser, Settings2, CalendarClock,
-  OctagonX, ListChecks, Radar, Bug, LifeBuoy, Activity, FileText, CaseSensitive, RotateCw
+  FilePlus,
+  PlayCircle,
+  PauseCircle,
+  Eraser,
+  Settings2,
+  CalendarClock,
+  OctagonX,
+  ListChecks,
+  Radar,
+  Bug,
+  LifeBuoy,
+  Activity,
+  FileText,
+  CaseSensitive,
+  RotateCw,
 } from 'lucide-react';
 import { cn } from '../utils';
 
 // Icon color map — uses CSS variables for semantic meaning, not raw Tailwind colors
 const ICON_COLORS: Record<string, string> = {
-  add:        'var(--color-success)',
-  resume:     'var(--color-success)',
-  pause:      'var(--color-warning)',
-  stop:       'var(--color-error)',
-  progress:   'var(--color-info)',
+  add: 'var(--color-success)',
+  resume: 'var(--color-success)',
+  pause: 'var(--color-warning)',
+  stop: 'var(--color-error)',
+  progress: 'var(--color-info)',
   properties: 'var(--color-brand)',
-  delete:     'var(--color-error)',
-  clear:      'var(--color-text-3)',
-  settings:   'var(--color-info)',
-  scheduler:  'var(--color-brand)',
-  grabber:    'var(--color-success)',
-  spider:     'var(--color-info)',
-  help:       'var(--color-text-4)',
-  rename:     'var(--color-brand)',
+  delete: 'var(--color-error)',
+  clear: 'var(--color-text-3)',
+  settings: 'var(--color-info)',
+  scheduler: 'var(--color-brand)',
+  grabber: 'var(--color-success)',
+  spider: 'var(--color-info)',
+  help: 'var(--color-text-4)',
+  rename: 'var(--color-brand)',
 };
 
 const ActionButton = ({
@@ -64,7 +77,6 @@ const Divider = () => (
 );
 
 const Toolbar = React.memo(function Toolbar({
-   
   selectedIds = new Set(),
   onAdd,
   onResumeSelected,
@@ -129,19 +141,44 @@ const Toolbar = React.memo(function Toolbar({
     >
       {/* Group 1: New Tasks — always visible */}
       <div role="group" aria-label="New Task">
-        <ActionButton icon={FilePlus} label={t('toolbar.add_url', 'Add URL')} onClick={onAdd} colorKey="add" />
+        <ActionButton
+          icon={FilePlus}
+          label={t('toolbar.add_url', 'Add URL')}
+          onClick={onAdd}
+          colorKey="add"
+        />
       </div>
       <Divider />
 
       {/* Group 2: Playback Controls — contextual (visible when rows selected) */}
       {hasSelection && (
         <>
-          <div role="group" aria-label="Playback" className="flex items-center gap-1 toolbar-context-group">
-            <ActionButton icon={resumeLabel === 'Retry' ? RotateCw : PlayCircle} label={resumeLabel || t('toolbar.resume', 'Resume')}    onClick={onResumeSelected}  disabled={!canResume}      colorKey="resume" />
-            <ActionButton icon={PauseCircle}      label={t('toolbar.pause', 'Pause')}     onClick={onPauseSelected}   disabled={!canPause}       colorKey="pause" />
+          <div
+            role="group"
+            aria-label="Playback"
+            className="flex items-center gap-1 toolbar-context-group"
+          >
+            <ActionButton
+              icon={resumeLabel === 'Retry' ? RotateCw : PlayCircle}
+              label={resumeLabel || t('toolbar.resume', 'Resume')}
+              onClick={onResumeSelected}
+              disabled={!canResume}
+              colorKey="resume"
+            />
+            <ActionButton
+              icon={PauseCircle}
+              label={t('toolbar.pause', 'Pause')}
+              onClick={onPauseSelected}
+              disabled={!canPause}
+              colorKey="pause"
+            />
             <ActionButton
               icon={isSelectedCompleted ? FileText : Activity}
-              label={isSelectedCompleted ? t('toolbar.properties', 'Properties') : t('toolbar.progress', 'Progress')}
+              label={
+                isSelectedCompleted
+                  ? t('toolbar.properties', 'Properties')
+                  : t('toolbar.progress', 'Progress')
+              }
               onClick={onShowProgress}
               disabled={!canShowProgress}
               colorKey={isSelectedCompleted ? 'properties' : 'progress'}
@@ -150,9 +187,25 @@ const Toolbar = React.memo(function Toolbar({
           <Divider />
 
           {/* Group 3: Delete & Edit — contextual */}
-          <div role="group" aria-label="Edit" className="flex items-center gap-1 toolbar-context-group">
-            <ActionButton icon={CaseSensitive}   label={t('toolbar.rename', 'Batch Rename')} onClick={() => onBatchRename && onBatchRename()} disabled={selectedIds && selectedIds.size === 0} colorKey="rename" />
-            <ActionButton icon={Eraser} label={t('toolbar.delete', 'Delete')}       onClick={onDeleteSelected}  disabled={!canDelete} colorKey="delete" />
+          <div
+            role="group"
+            aria-label="Edit"
+            className="flex items-center gap-1 toolbar-context-group"
+          >
+            <ActionButton
+              icon={CaseSensitive}
+              label={t('toolbar.rename', 'Batch Rename')}
+              onClick={() => onBatchRename && onBatchRename()}
+              disabled={selectedIds && selectedIds.size === 0}
+              colorKey="rename"
+            />
+            <ActionButton
+              icon={Eraser}
+              label={t('toolbar.delete', 'Delete')}
+              onClick={onDeleteSelected}
+              disabled={!canDelete}
+              colorKey="delete"
+            />
           </div>
           <Divider />
         </>
@@ -160,24 +213,61 @@ const Toolbar = React.memo(function Toolbar({
 
       {/* Global actions — always visible */}
       <div role="group" aria-label="Global">
-        <ActionButton icon={OctagonX}  label={t('toolbar.stop_all', 'Stop All')}       onClick={onStopAll}         disabled={!canStopAll}        colorKey="stop" />
-        <ActionButton icon={ListChecks} label={t('toolbar.clear_completed', 'Clear Completed')} onClick={onDeleteCompleted} disabled={!canDeleteCompleted} colorKey="clear" />
+        <ActionButton
+          icon={OctagonX}
+          label={t('toolbar.stop_all', 'Stop All')}
+          onClick={onStopAll}
+          disabled={!canStopAll}
+          colorKey="stop"
+        />
+        <ActionButton
+          icon={ListChecks}
+          label={t('toolbar.clear_completed', 'Clear Completed')}
+          onClick={onDeleteCompleted}
+          disabled={!canDeleteCompleted}
+          colorKey="clear"
+        />
       </div>
       <Divider />
 
       {/* Group 4: Advanced Tools */}
       <div role="group" aria-label="Tools">
-        <ActionButton icon={Settings2}  label={t('toolbar.settings', 'Settings')}  onClick={onOptions}   colorKey="settings" />
-        <ActionButton icon={CalendarClock}  label={t('toolbar.scheduler', 'Scheduler')} onClick={onScheduler} colorKey="scheduler" />
-        <ActionButton icon={Radar}     label={t('toolbar.grabber', 'Grabber')}   onClick={onGrabber}   colorKey="grabber" />
-        <ActionButton icon={Bug}   label={t('toolbar.spider', 'Spider')}    onClick={onSpider}    colorKey="spider" />
+        <ActionButton
+          icon={Settings2}
+          label={t('toolbar.settings', 'Settings')}
+          onClick={onOptions}
+          colorKey="settings"
+        />
+        <ActionButton
+          icon={CalendarClock}
+          label={t('toolbar.scheduler', 'Scheduler')}
+          onClick={onScheduler}
+          colorKey="scheduler"
+        />
+        <ActionButton
+          icon={Radar}
+          label={t('toolbar.grabber', 'Grabber')}
+          onClick={onGrabber}
+          colorKey="grabber"
+        />
+        <ActionButton
+          icon={Bug}
+          label={t('toolbar.spider', 'Spider')}
+          onClick={onSpider}
+          colorKey="spider"
+        />
       </div>
       <Divider />
 
       {/* Group 5: Help */}
       <div className="ml-auto flex items-center pr-2 gap-1">
         {children}
-        <ActionButton icon={LifeBuoy} label={t('toolbar.help', 'Help')} onClick={onHelp} colorKey="help" />
+        <ActionButton
+          icon={LifeBuoy}
+          label={t('toolbar.help', 'Help')}
+          onClick={onHelp}
+          colorKey="help"
+        />
       </div>
     </div>
   );

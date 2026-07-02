@@ -11,10 +11,10 @@ export default {
         mono: ['JetBrains Mono', 'Consolas', 'monospace'],
       },
       animation: {
-        'fade-in':    'fadeIn 0.18s ease',
-        'slide-up':   'slideUp 0.18s ease',
+        'fade-in': 'fadeIn 0.18s ease',
+        'slide-up': 'slideUp 0.18s ease',
         'slide-down': 'slideUp 0.18s ease reverse',
-        'dialog-in':  'slideDialog 0.18s ease',
+        'dialog-in': 'slideDialog 0.18s ease',
         'pulse-slow': 'pulse 2s ease infinite',
       },
     },

@@ -1,8 +1,17 @@
 import React, { useState } from 'react';
 import {
-  PackageOpen, Timer, CircleCheck, Braces,
-  FileText, GitBranch, SlidersHorizontal, Eraser, Plus, X, Check,
-  LayoutGrid
+  PackageOpen,
+  Timer,
+  CircleCheck,
+  Braces,
+  FileText,
+  GitBranch,
+  SlidersHorizontal,
+  Eraser,
+  Plus,
+  X,
+  Check,
+  LayoutGrid,
 } from 'lucide-react';
 import { cn } from '../utils';
 import { useTranslation } from 'react-i18next';
@@ -16,28 +25,30 @@ export const evaluateQuery = (downloads: DownloadInfo[], query: string): Downloa
     if (!part.trim()) continue;
     if (part.startsWith('url:')) {
       const val = part.slice(4).toLowerCase();
-      out = out.filter(d => d.url.toLowerCase().includes(val));
+      out = out.filter((d) => d.url.toLowerCase().includes(val));
     } else if (part.startsWith('filename:')) {
       const val = part.slice(9).toLowerCase();
-      out = out.filter(d => (d.filename || '').toLowerCase().includes(val));
+      out = out.filter((d) => (d.filename || '').toLowerCase().includes(val));
     } else if (part.startsWith('status:')) {
       const val = part.slice(7).toLowerCase();
-      out = out.filter(d => d.status.toLowerCase() === val);
+      out = out.filter((d) => d.status.toLowerCase() === val);
     } else if (part.startsWith('size:>')) {
       const val = parseInt(part.slice(6), 10);
-      out = out.filter(d => d.total_bytes ? d.total_bytes > val : false);
+      out = out.filter((d) => (d.total_bytes ? d.total_bytes > val : false));
     } else if (part.startsWith('size:<')) {
       const val = parseInt(part.slice(6), 10);
-      out = out.filter(d => d.total_bytes ? d.total_bytes < val : false);
+      out = out.filter((d) => (d.total_bytes ? d.total_bytes < val : false));
     } else if (part.startsWith('speed:>')) {
       const val = parseInt(part.slice(7), 10);
-      out = out.filter(d => d.speed_bps ? d.speed_bps > val : false);
+      out = out.filter((d) => (d.speed_bps ? d.speed_bps > val : false));
     } else if (part.startsWith('speed:<')) {
       const val = parseInt(part.slice(7), 10);
-      out = out.filter(d => d.speed_bps ? d.speed_bps < val : false);
+      out = out.filter((d) => (d.speed_bps ? d.speed_bps < val : false));
     } else {
       const val = part.toLowerCase();
-      out = out.filter(d => d.url.toLowerCase().includes(val) || (d.filename || '').toLowerCase().includes(val));
+      out = out.filter(
+        (d) => d.url.toLowerCase().includes(val) || (d.filename || '').toLowerCase().includes(val),
+      );
     }
   }
   return out;
@@ -61,40 +72,40 @@ const Sidebar = React.memo(function Sidebar({
   const [newListName, setNewListName] = useState('');
   const [newListQuery, setNewListQuery] = useState('');
 
-  const allCount        = downloads.length;
-  const unfinishedCount = downloads.filter(d => d.status !== 'completed').length;
-  const completedCount  = downloads.filter(d => d.status === 'completed').length;
+  const allCount = downloads.length;
+  const unfinishedCount = downloads.filter((d) => d.status !== 'completed').length;
+  const completedCount = downloads.filter((d) => d.status === 'completed').length;
 
   const getExtCount = (exts: string[]) =>
-    downloads.filter(d => {
+    downloads.filter((d) => {
       const name = d.filename || d.url || '';
-      const ext  = name.split('.').pop()?.toLowerCase();
+      const ext = name.split('.').pop()?.toLowerCase();
       return ext ? exts.includes(ext) : false;
     }).length;
 
   const categories = [
-    { name: t('Dashboard'),      icon: LayoutGrid, count: 0,     desc: 'Overview' },
-    { name: t('All Downloads'),  icon: PackageOpen,  count: allCount, desc: 'Everything' },
-    { name: t('Unfinished'),     icon: Timer,        count: unfinishedCount, desc: 'In progress' },
-    { name: t('Completed'),      icon: CircleCheck,  count: completedCount,  desc: 'Done' },
-    { name: t('Grabber'),        icon: Braces,       count: 0,     desc: 'Mass grab' },
+    { name: t('Dashboard'), icon: LayoutGrid, count: 0, desc: 'Overview' },
+    { name: t('All Downloads'), icon: PackageOpen, count: allCount, desc: 'Everything' },
+    { name: t('Unfinished'), icon: Timer, count: unfinishedCount, desc: 'In progress' },
+    { name: t('Completed'), icon: CircleCheck, count: completedCount, desc: 'Done' },
+    { name: t('Grabber'), icon: Braces, count: 0, desc: 'Mass grab' },
   ];
 
   const queues = [
     {
       name: t('Main Queue'),
       icon: GitBranch,
-      count: downloads.filter(d => ['paused','idle','queued'].includes(d.status)).length,
+      count: downloads.filter((d) => ['paused', 'idle', 'queued'].includes(d.status)).length,
     },
   ];
 
-  const types = categoryRules.map(r => ({
+  const types = categoryRules.map((r) => ({
     name: r.label,
     icon: SlidersHorizontal,
-    count: getExtCount(r.extensions.map(ext => ext.replace(/^\./, '').toLowerCase()))
+    count: getExtCount(r.extensions.map((ext) => ext.replace(/^\./, '').toLowerCase())),
   }));
 
-  const smartItems = smartLists.map(sl => ({
+  const smartItems = smartLists.map((sl) => ({
     id: sl.id,
     name: sl.name,
     icon: SlidersHorizontal,
@@ -102,9 +113,15 @@ const Sidebar = React.memo(function Sidebar({
     isSmart: true,
   }));
 
-  const renderItem = (item: { id?: string; name: string; icon: React.ElementType; count?: number; isSmart?: boolean }) => {
-    const Icon       = item.icon;
-    const isActive   = activeCategory === item.name;
+  const renderItem = (item: {
+    id?: string;
+    name: string;
+    icon: React.ElementType;
+    count?: number;
+    isSmart?: boolean;
+  }) => {
+    const Icon = item.icon;
+    const isActive = activeCategory === item.name;
     const isConfirming = item.isSmart && confirmDeleteId === item.id;
 
     return (
@@ -123,19 +140,14 @@ const Sidebar = React.memo(function Sidebar({
         className={cn('sidebar-item group', isActive && 'active')}
       >
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <div className={cn(
-            'sidebar-icon-wrap',
-            isActive && 'active'
-          )}>
+          <div className={cn('sidebar-icon-wrap', isActive && 'active')}>
             <Icon size={13} strokeWidth={isActive ? 2.2 : 1.8} />
           </div>
           <span className="truncate text-[11.5px] leading-tight">{item.name}</span>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
           {item.count !== undefined && item.count > 0 && !isConfirming && (
-            <span className={cn('sidebar-item-count', isActive && 'active')}>
-              {item.count}
-            </span>
+            <span className={cn('sidebar-item-count', isActive && 'active')}>{item.count}</span>
           )}
           {item.isSmart && !isConfirming && (
             <button
@@ -183,11 +195,7 @@ const Sidebar = React.memo(function Sidebar({
     );
   };
 
-  const renderSection = (
-    title: string | null,
-    items: any[],
-    action?: React.ReactNode
-  ) => (
+  const renderSection = (title: string | null, items: any[], action?: React.ReactNode) => (
     <div className="sidebar-section">
       {title && (
         <div className="sidebar-section-header">
@@ -200,10 +208,7 @@ const Sidebar = React.memo(function Sidebar({
   );
 
   return (
-    <nav
-      aria-label="Application navigation"
-      className="sidebar-nav"
-    >
+    <nav aria-label="Application navigation" className="sidebar-nav">
       {renderSection(null, categories)}
       <div className="sidebar-divider" />
       {renderSection('Queues', queues)}
@@ -220,7 +225,7 @@ const Sidebar = React.memo(function Sidebar({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            setShowAddForm(f => !f);
+            setShowAddForm((f) => !f);
             setNewListName('');
             setNewListQuery('');
           }}
@@ -228,25 +233,35 @@ const Sidebar = React.memo(function Sidebar({
           title="Create Smart List"
         >
           <Plus size={12} />
-        </button>
+        </button>,
       )}
       {showAddForm && (
-        <div className="smart-list-dialog" style={{ position: 'relative', top: 0, right: 'auto', marginTop: 4 }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-2)', letterSpacing: '0.02em' }}>
+        <div
+          className="smart-list-dialog"
+          style={{ position: 'relative', top: 0, right: 'auto', marginTop: 4 }}
+        >
+          <div
+            style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              color: 'var(--color-text-2)',
+              letterSpacing: '0.02em',
+            }}
+          >
             New Smart List
           </div>
           <input
             className="search-input w-full"
             placeholder="List name"
             value={newListName}
-            onChange={e => setNewListName(e.target.value)}
+            onChange={(e) => setNewListName(e.target.value)}
             autoFocus
           />
           <input
             className="search-input w-full"
-            placeholder='Filter query (e.g. url:github)'
+            placeholder="Filter query (e.g. url:github)"
             value={newListQuery}
-            onChange={e => setNewListQuery(e.target.value)}
+            onChange={(e) => setNewListQuery(e.target.value)}
           />
           <div className="flex gap-2 justify-end">
             <button

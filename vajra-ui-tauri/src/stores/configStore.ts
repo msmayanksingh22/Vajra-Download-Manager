@@ -22,7 +22,7 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     try {
       const config = await api.config();
       set({ config, loading: false });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch config', loading: false });
     }
@@ -34,9 +34,9 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
       await api.setConfig(updates);
       // refetch to ensure we have the latest merged config from server
       await get().fetchConfig();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       set({ error: err.message || 'Failed to update config', loading: false });
     }
-  }
+  },
 }));

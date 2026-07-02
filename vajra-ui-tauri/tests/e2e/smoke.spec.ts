@@ -29,7 +29,7 @@ test.describe('Vajra UI Smoke Tests', () => {
 
   test('should render empty downloads table initially', async ({ page }) => {
     await page.goto('/');
-    
+
     // There should be a grid element
     const grid = page.locator('.ag-theme-alpine-dark, .ag-theme-quartz-dark, [role="grid"]');
     await expect(grid).toBeVisible();

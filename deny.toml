@@ -15,8 +15,6 @@ allow = [
     "Zlib",
     "MPL-2.0"
 ]
-copyleft = "deny"
-allow-osi-fsf-free = "both"
 confidence-threshold = 0.8
 
 [bans]

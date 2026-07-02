@@ -9,7 +9,6 @@ import { ThemeProvider } from './ThemeContext';
 import './index.css';
 import './i18n';
 
-
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 const params = new URLSearchParams(window.location.search);
@@ -17,7 +16,12 @@ const windowType = params.get('window');
 
 let RootComponent = <App />;
 if (windowType === 'addUrl') {
-  RootComponent = <AddUrlWindow initialUrl={params.get('url') || ''} initialFilename={params.get('filename') || ''} />;
+  RootComponent = (
+    <AddUrlWindow
+      initialUrl={params.get('url') || ''}
+      initialFilename={params.get('filename') || ''}
+    />
+  );
 } else if (windowType === 'downloadComplete') {
   RootComponent = <DownloadCompleteWindow downloadId={params.get('id')} />;
 } else if (windowType === 'downloadFailed') {
@@ -28,10 +32,8 @@ if (windowType === 'addUrl') {
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <ErrorBoundary>
-    <ThemeProvider>
-      {RootComponent}
-    </ThemeProvider>
-  </ErrorBoundary>
+    <ThemeProvider>{RootComponent}</ThemeProvider>
+  </ErrorBoundary>,
 );
 
 // Prevent native web behaviors to make the app feel like a "hard program"

@@ -12,7 +12,7 @@ const mockItems = [
     speed_bps: 100,
     progress_pct: 50,
     eta_seconds: 5,
-    created_at: 1620000000
+    created_at: 1620000000,
   },
   {
     id: '2',
@@ -23,8 +23,8 @@ const mockItems = [
     speed_bps: 0,
     progress_pct: 100,
     eta_seconds: null,
-    created_at: 1620000100
-  }
+    created_at: 1620000100,
+  },
 ];
 
 describe('DownloadsTable', () => {
@@ -39,7 +39,7 @@ describe('DownloadsTable', () => {
         onDoubleClick={vi.fn()}
         onAction={vi.fn()}
         selectedIds={new Set()}
-      />
+      />,
     );
 
     expect(screen.getByText('test_file.zip')).toBeInTheDocument();
@@ -57,7 +57,7 @@ describe('DownloadsTable', () => {
         onDoubleClick={vi.fn()}
         onAction={vi.fn()}
         selectedIds={new Set()}
-      />
+      />,
     );
 
     expect(screen.queryByText('test_file.zip')).not.toBeInTheDocument();
@@ -76,7 +76,7 @@ describe('DownloadsTable', () => {
         onDoubleClick={vi.fn()}
         onAction={vi.fn()}
         selectedIds={new Set()}
-      />
+      />,
     );
 
     const row = screen.getByText('test_file.zip').closest('tr');

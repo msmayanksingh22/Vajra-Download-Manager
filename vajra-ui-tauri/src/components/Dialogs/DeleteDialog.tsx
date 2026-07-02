@@ -4,7 +4,9 @@ import { useDialogEscape } from '../../hooks/useDialogEscape';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export default function DeleteDialog({
-  count, onClose, onConfirm,
+  count,
+  onClose,
+  onConfirm,
 }: {
   count: number;
   onClose: () => void;
@@ -20,14 +22,18 @@ export default function DeleteDialog({
         ref={trapRef}
         className="dialog-panel"
         style={{ width: 380 }}
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="delete-dialog-title"
       >
         {/* Header */}
         <div className="dialog-header">
-          <div className="dialog-header-title" id="delete-dialog-title" style={{ color: 'var(--color-error)' }}>
+          <div
+            className="dialog-header-title"
+            id="delete-dialog-title"
+            style={{ color: 'var(--color-error)' }}
+          >
             <AlertTriangle size={16} style={{ color: 'var(--color-error)' }} />
             Confirm Deletion
           </div>
@@ -43,10 +49,22 @@ export default function DeleteDialog({
             className="card-subtle text-center"
             style={{ padding: 'var(--sp-4)', borderColor: 'var(--color-error-dim)' }}
           >
-            <p style={{ fontWeight: 600, fontSize: 'var(--text-base-size)', color: 'var(--color-text-1)' }}>
+            <p
+              style={{
+                fontWeight: 600,
+                fontSize: 'var(--text-base-size)',
+                color: 'var(--color-text-1)',
+              }}
+            >
               Delete {count === 1 ? 'this download' : `these ${count} downloads`}?
             </p>
-            <p style={{ fontSize: 'var(--text-sm-size)', color: 'var(--color-text-3)', marginTop: 4 }}>
+            <p
+              style={{
+                fontSize: 'var(--text-sm-size)',
+                color: 'var(--color-text-3)',
+                marginTop: 4,
+              }}
+            >
               Choose whether to remove from the list only, or also delete the file from disk.
             </p>
           </div>
@@ -59,8 +77,13 @@ export default function DeleteDialog({
             <input
               type="checkbox"
               checked={rememberChoice}
-              onChange={e => setRememberChoice(e.target.checked)}
-              style={{ accentColor: 'var(--color-brand)', width: 14, height: 14, cursor: 'default' }}
+              onChange={(e) => setRememberChoice(e.target.checked)}
+              style={{
+                accentColor: 'var(--color-brand)',
+                width: 14,
+                height: 14,
+                cursor: 'default',
+              }}
             />
             <span style={{ fontSize: 'var(--text-sm-size)', color: 'var(--color-text-2)' }}>
               Remember my choice
@@ -70,7 +93,9 @@ export default function DeleteDialog({
 
         {/* Footer — three action buttons */}
         <div className="dialog-footer" style={{ gap: 'var(--sp-2)' }}>
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
           <button
             className="btn-secondary flex items-center gap-1.5"
             onClick={() => onConfirm(false, rememberChoice)}

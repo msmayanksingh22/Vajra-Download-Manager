@@ -9,16 +9,16 @@ export function exportDownloadsJson(downloads: DownloadInfo[]) {
 
 export function exportDownloadsCsv(downloads: DownloadInfo[]) {
   const headers = ['URL', 'Filename', 'Tags', 'Output Path'];
-  const rows = downloads.map(d => [
+  const rows = downloads.map((d) => [
     d.url,
     d.filename || '',
     (d.tags || []).join(';'),
-    d.output_path || ''
+    d.output_path || '',
   ]);
-  
+
   const csvContent = [
     headers.join(','),
-    ...rows.map(row => row.map(v => `"${(v || '').replace(/"/g, '""')}"`).join(','))
+    ...rows.map((row) => row.map((v) => `"${(v || '').replace(/"/g, '""')}"`).join(',')),
   ].join('\n');
 
   const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -39,7 +39,7 @@ function triggerDownload(blob: Blob, filename: string) {
 export async function importDownloads(file: File) {
   const text = await file.text();
   const reqs: AddDownloadRequest[] = [];
-  
+
   if (file.name.endsWith('.json')) {
     try {
       const data = JSON.parse(text);
@@ -60,25 +60,28 @@ export async function importDownloads(file: File) {
       throw new Error('Invalid JSON format');
     }
   } else if (file.name.endsWith('.csv')) {
-    const lines = text.split('\n').filter(l => l.trim().length > 0);
+    const lines = text.split('\n').filter((l) => l.trim().length > 0);
     if (lines.length > 1) {
-      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-      const urlIdx = headers.findIndex(h => h.toLowerCase() === 'url');
-      const fileIdx = headers.findIndex(h => h.toLowerCase() === 'filename');
-      const tagsIdx = headers.findIndex(h => h.toLowerCase() === 'tags');
-      const outIdx = headers.findIndex(h => h.toLowerCase() === 'output path');
-      
+      const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+      const urlIdx = headers.findIndex((h) => h.toLowerCase() === 'url');
+      const fileIdx = headers.findIndex((h) => h.toLowerCase() === 'filename');
+      const tagsIdx = headers.findIndex((h) => h.toLowerCase() === 'tags');
+      const outIdx = headers.findIndex((h) => h.toLowerCase() === 'output path');
+
       for (let i = 1; i < lines.length; i++) {
         // Simple CSV parse line handling basic quotes
         const match = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
         if (!match) continue;
-        const row = match.map(v => v.replace(/^"|"$/g, '').replace(/""/g, '"'));
+        const row = match.map((v) => v.replace(/^"|"$/g, '').replace(/""/g, '"'));
         const url = urlIdx >= 0 ? row[urlIdx] : row[0];
         if (url && url.startsWith('http')) {
           reqs.push({
             url,
             filename: fileIdx >= 0 ? row[fileIdx] : undefined,
-            tags: tagsIdx >= 0 && row[tagsIdx] ? row[tagsIdx].split(';').map(t => t.trim()) : undefined,
+            tags:
+              tagsIdx >= 0 && row[tagsIdx]
+                ? row[tagsIdx].split(';').map((t) => t.trim())
+                : undefined,
             output_dir: outIdx >= 0 ? row[outIdx] : undefined,
           });
         }
