@@ -82,7 +82,7 @@ async fn test_manager_lifecycle() {
 
     // 1. Add
     manager.add_with_id(id.clone(), req).await;
-    
+
     // Wait for it to show up
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let progress = manager.progress(id).await.expect("Task not found");
@@ -91,13 +91,16 @@ async fn test_manager_lifecycle() {
     // 2. Pause
     manager.pause(id).await;
     // (It might take a tick for state to reflect Pause/Pausing, but we can verify it's no longer actively pulling from queue to new state)
-    
+
     // 3. Resume
     manager.resume(id).await;
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    
+
     // 4. Cancel
     manager.cancel(id).await;
     let entries = manager.all_progress().await;
-    assert!(entries.iter().all(|e| e.id != id), "Task should be removed from manager");
+    assert!(
+        entries.iter().all(|e| e.id != id),
+        "Task should be removed from manager"
+    );
 }

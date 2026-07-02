@@ -6,8 +6,8 @@
 
 use std::sync::{Arc, Weak};
 
-use serde::{Deserialize, Serialize};
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
@@ -198,7 +198,7 @@ impl DownloadManager {
         let mut entries = self.entries.write().await;
         if let Some(entry) = entries.get_mut(&id) {
             entry.request.tags = tags;
-            // The running task (if any) won't instantly emit progress with new tags 
+            // The running task (if any) won't instantly emit progress with new tags
             // since it holds a clone of the request, but on next resume it will.
             // That's fine for tags.
         } else {
@@ -216,7 +216,12 @@ impl DownloadManager {
                 let prog = task.progress();
                 let state = prog.state.clone();
                 task.cancel().await;
-                Some((state, prog.bytes_downloaded, prog.total_bytes, prog.error.clone()))
+                Some((
+                    state,
+                    prog.bytes_downloaded,
+                    prog.total_bytes,
+                    prog.error.clone(),
+                ))
             } else {
                 None
             };
@@ -224,7 +229,12 @@ impl DownloadManager {
 
             // Old filename
             let old_filename = entry.request.filename.clone().unwrap_or_else(|| {
-                let base = entry.request.url.split('#').next().unwrap_or(&entry.request.url);
+                let base = entry
+                    .request
+                    .url
+                    .split('#')
+                    .next()
+                    .unwrap_or(&entry.request.url);
                 let base = base.split('?').next().unwrap_or(base);
                 base.split('/')
                     .next_back()
@@ -334,9 +344,7 @@ impl DownloadManager {
         // Step 1: retrieve and pause the current task (if any) under a read-lock.
         let maybe_task = {
             let entries = self.entries.read().await;
-            entries
-                .get(&id)
-                .and_then(|e| e.task.clone())
+            entries.get(&id).and_then(|e| e.task.clone())
         };
 
         if let Some(task) = maybe_task {
@@ -612,7 +620,12 @@ impl DownloadManager {
                 .collect();
 
             // Sort indices by Priority (High < Normal < Low). Stable sort preserves insertion order.
-            queued_keys.sort_by_key(|id| entries.get(id).map(|e| e.request.priority.clone()).unwrap_or(vajra_protocol::Priority::Low));
+            queued_keys.sort_by_key(|id| {
+                entries
+                    .get(id)
+                    .map(|e| e.request.priority.clone())
+                    .unwrap_or(vajra_protocol::Priority::Low)
+            });
 
             for id in queued_keys.into_iter().take(slots) {
                 if let Some(entry) = entries.get_mut(&id) {
@@ -637,13 +650,14 @@ impl DownloadManager {
                     state,
                     TaskState::Completed | TaskState::Failed | TaskState::Cancelled
                 ) {
-                    entry.terminal_since.get_or_insert(std::time::Instant::now());
+                    entry
+                        .terminal_since
+                        .get_or_insert(std::time::Instant::now());
                 } else {
                     entry.terminal_since = None;
                 }
             }
         }
-
     }
 
     fn start_scheduler(manager: Weak<Self>) {
@@ -668,7 +682,8 @@ impl DownloadManager {
 
     /// Import a queue from JSON.
     pub async fn import_queue_json(&self, json_data: &str) -> Result<usize, String> {
-        let requests: Vec<DownloadRequest> = serde_json::from_str(json_data).map_err(|e| e.to_string())?;
+        let requests: Vec<DownloadRequest> =
+            serde_json::from_str(json_data).map_err(|e| e.to_string())?;
         let count = requests.len();
         for req in requests {
             self.add(req).await;
@@ -679,7 +694,12 @@ impl DownloadManager {
 
 fn get_entry_progress(entry: &QueueEntry) -> DownloadProgress {
     let filename = entry.request.filename.clone().unwrap_or_else(|| {
-        let base = entry.request.url.split('#').next().unwrap_or(&entry.request.url);
+        let base = entry
+            .request
+            .url
+            .split('#')
+            .next()
+            .unwrap_or(&entry.request.url);
         let base = base.split('?').next().unwrap_or(base);
         base.split('/')
             .next_back()

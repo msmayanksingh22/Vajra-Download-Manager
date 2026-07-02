@@ -29,7 +29,6 @@
 //! ```
 
 #[allow(unsafe_code)]
-
 use std::{io, path::Path, sync::Arc};
 
 use bytes::Bytes;
@@ -143,22 +142,16 @@ impl MmapHandle {
     fn new(file: &std::fs::File, len: usize) -> io::Result<Self> {
         #[cfg(target_os = "windows")]
         {
-            use std::os::windows::io::AsRawHandle;
+            use std::{os::windows::io::AsRawHandle, ptr::null_mut};
+
             use windows_sys::Win32::System::Memory::{
                 CreateFileMappingW, MapViewOfFile, FILE_MAP_WRITE, PAGE_READWRITE,
             };
-            use std::ptr::null_mut;
 
             unsafe {
                 let handle = file.as_raw_handle();
-                let mapping = CreateFileMappingW(
-                    handle as _,
-                    null_mut(),
-                    PAGE_READWRITE,
-                    0,
-                    0,
-                    null_mut(),
-                );
+                let mapping =
+                    CreateFileMappingW(handle as _, null_mut(), PAGE_READWRITE, 0, 0, null_mut());
                 if mapping.is_null() {
                     return Err(io::Error::last_os_error());
                 }
@@ -201,14 +194,20 @@ impl MmapHandle {
             }
             #[cfg(not(unix))]
             {
-                Err(io::Error::new(io::ErrorKind::Unsupported, "mmap unsupported on this platform"))
+                Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "mmap unsupported on this platform",
+                ))
             }
         }
     }
 
     fn write_at(&self, offset: u64, data: &[u8]) -> io::Result<()> {
         if (offset as usize + data.len()) > self.len {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Write out of bounds"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Write out of bounds",
+            ));
         }
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), self.ptr.add(offset as usize), data.len());
@@ -252,7 +251,9 @@ impl Drop for MmapHandle {
         {
             use windows_sys::Win32::System::Memory::{UnmapViewOfFile, MEMORY_MAPPED_VIEW_ADDRESS};
             unsafe {
-                let view_addr = MEMORY_MAPPED_VIEW_ADDRESS { Value: self.ptr as *mut std::ffi::c_void };
+                let view_addr = MEMORY_MAPPED_VIEW_ADDRESS {
+                    Value: self.ptr as *mut std::ffi::c_void,
+                };
                 let _ = UnmapViewOfFile(view_addr);
                 let _ = windows_sys::Win32::Foundation::CloseHandle(self.mapping);
             }

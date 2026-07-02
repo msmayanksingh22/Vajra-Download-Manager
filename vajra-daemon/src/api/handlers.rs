@@ -3,7 +3,10 @@
 use std::{path::PathBuf, sync::Arc};
 
 use axum::{
-    extract::{Path, Query, State, ws::{WebSocketUpgrade, WebSocket, Message}},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Path, Query, State,
+    },
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -114,57 +117,66 @@ pub async fn add_download(
         }
     }
 
-        let proxy = config.proxy.url.clone();
-        let proxies = config.proxy.urls.clone();
+    let proxy = config.proxy.url.clone();
+    let proxies = config.proxy.urls.clone();
 
-        // Determine local_address from bind_interface
-        let mut local_address = None;
-        if let Some(iface_name) = &config.bind_interface {
-            let networks = sysinfo::Networks::new_with_refreshed_list();
-            if let Some((_, network)) = networks.iter().find(|(name, _)| *name == iface_name) {
-                if let Some(ip) = network.ip_networks().first() {
-                    local_address = Some(ip.addr);
-                }
+    // Determine local_address from bind_interface
+    let mut local_address = None;
+    if let Some(iface_name) = &config.bind_interface {
+        let networks = sysinfo::Networks::new_with_refreshed_list();
+        if let Some((_, network)) = networks.iter().find(|(name, _)| *name == iface_name) {
+            if let Some(ip) = network.ip_networks().first() {
+                local_address = Some(ip.addr);
             }
         }
+    }
 
-        let mut target_url = body.url.clone();
-        if vajra_engine::cloud::is_cloud_link(&target_url) {
-            tracing::info!("Consumer Cloud share link detected: '{}'. Attempting auto-translation...", target_url);
-            match vajra_engine::cloud::translate_cloud_link(&target_url).await {
-                Ok(translated) => {
-                    tracing::info!("Successfully translated cloud link to direct download: '{}'", translated);
-                    target_url = translated;
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to translate cloud link: {}. Downloading original URL.", e);
-                }
+    let mut target_url = body.url.clone();
+    if vajra_engine::cloud::is_cloud_link(&target_url) {
+        tracing::info!(
+            "Consumer Cloud share link detected: '{}'. Attempting auto-translation...",
+            target_url
+        );
+        match vajra_engine::cloud::translate_cloud_link(&target_url).await {
+            Ok(translated) => {
+                tracing::info!(
+                    "Successfully translated cloud link to direct download: '{}'",
+                    translated
+                );
+                target_url = translated;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to translate cloud link: {}. Downloading original URL.",
+                    e
+                );
             }
         }
+    }
 
-        let tcp_multiplexing_opt = state.ab_test.is_enabled("tcp_multiplexing_opt");
-        let adaptive_chunk_v2 = state.ab_test.is_enabled("adaptive_chunk_v2");
+    let tcp_multiplexing_opt = state.ab_test.is_enabled("tcp_multiplexing_opt");
+    let adaptive_chunk_v2 = state.ab_test.is_enabled("adaptive_chunk_v2");
 
-        let request = DownloadRequest {
-            url: target_url,
-            mirrors: vec![],
-            dest_dir: output_dir,
-            filename: body.filename.clone(),
-            timeout_secs: None,
-            connect_timeout_secs: None,
-            max_connections,
-            speed_limit,
-            delete_on_failure: false,
-            use_http3: body.use_http3 || config.default_use_http3,
-            referrer,
-            cookie_header: cookie,
-            user_agent,
-            authorization,
-            proxy,
-            proxies,
-            local_address,
-            tcp_multiplexing_opt,
-            adaptive_chunk_v2,
+    let request = DownloadRequest {
+        url: target_url,
+        mirrors: vec![],
+        dest_dir: output_dir,
+        filename: body.filename.clone(),
+        timeout_secs: None,
+        connect_timeout_secs: None,
+        max_connections,
+        speed_limit,
+        delete_on_failure: false,
+        use_http3: body.use_http3 || config.default_use_http3,
+        referrer,
+        cookie_header: cookie,
+        user_agent,
+        authorization,
+        proxy,
+        proxies,
+        local_address,
+        tcp_multiplexing_opt,
+        adaptive_chunk_v2,
         use_ytdlp: body.use_ytdlp,
         ytdlp_format: body.ytdlp_format.clone(),
         ytdlp_subtitles: body.ytdlp_subtitles,
@@ -313,7 +325,12 @@ pub async fn patch_download(
             ));
         }
 
-        if state.manager.update_filename(id, new_filename.to_string()).await.is_err() {
+        if state
+            .manager
+            .update_filename(id, new_filename.to_string())
+            .await
+            .is_err()
+        {
             return Err(DaemonError::NotFound(id));
         }
 
@@ -411,7 +428,12 @@ pub async fn patch_download(
 
     // 2.5 Handle Tags change
     if let Some(new_tags) = &body.tags {
-        if state.manager.update_tags(id, new_tags.clone()).await.is_err() {
+        if state
+            .manager
+            .update_tags(id, new_tags.clone())
+            .await
+            .is_err()
+        {
             // Might not be active anymore, but we can still update the DB
         }
         let db = state.database.lock().await;
@@ -449,7 +471,9 @@ pub async fn patch_download(
         }
         let status = match action {
             DownloadAction::Pause => vajra_protocol::DownloadStatus::Paused,
-            DownloadAction::Resume | DownloadAction::Retry => vajra_protocol::DownloadStatus::Connecting,
+            DownloadAction::Resume | DownloadAction::Retry => {
+                vajra_protocol::DownloadStatus::Connecting
+            }
             DownloadAction::Cancel => vajra_protocol::DownloadStatus::Failed,
         };
         state.sse.send(vajra_protocol::DaemonEvent::StateChange {
@@ -645,7 +669,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         while let Ok(msg) = rx.recv().await {
             // we serialize the same DaemonEvent as JSON
             if let Ok(json) = serde_json::to_string(&*msg) {
-                if futures_util::SinkExt::send(&mut sender, Message::Text(json.into())).await.is_err() {
+                if futures_util::SinkExt::send(&mut sender, Message::Text(json.into()))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -723,15 +750,28 @@ pub async fn inspect_url(
                 println!("[DEBUG] GET Fallback Request to URL: {}", req.url());
             }
             let get_resp = get_builder.send().await.map_err(|get_err| {
-                DaemonError::BadRequest(format!("HEAD status {} and GET fallback error: {}", r.status(), get_err))
+                DaemonError::BadRequest(format!(
+                    "HEAD status {} and GET fallback error: {}",
+                    r.status(),
+                    get_err
+                ))
             })?;
-            if !get_resp.status().is_success() && get_resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-                return Err(DaemonError::BadRequest(format!("HEAD status {} and GET fallback status {}", r.status(), get_resp.status())));
+            if !get_resp.status().is_success()
+                && get_resp.status() != reqwest::StatusCode::PARTIAL_CONTENT
+            {
+                return Err(DaemonError::BadRequest(format!(
+                    "HEAD status {} and GET fallback status {}",
+                    r.status(),
+                    get_resp.status()
+                )));
             }
             get_resp
         }
         Err(e) => {
-            println!("[DEBUG] HEAD request failed: {}. Retrying with GET fallback...", e);
+            println!(
+                "[DEBUG] HEAD request failed: {}. Retrying with GET fallback...",
+                e
+            );
             let mut get_builder = client.get(&body.url);
             for (k, v) in &body.headers {
                 if k.eq_ignore_ascii_case("range") {
@@ -743,10 +783,19 @@ pub async fn inspect_url(
                 println!("[DEBUG] GET Fallback Request to URL: {}", req.url());
             }
             let get_resp = get_builder.send().await.map_err(|get_err| {
-                DaemonError::BadRequest(format!("HEAD request failed ({}) and GET fallback failed ({})", e, get_err))
+                DaemonError::BadRequest(format!(
+                    "HEAD request failed ({}) and GET fallback failed ({})",
+                    e, get_err
+                ))
             })?;
-            if !get_resp.status().is_success() && get_resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-                return Err(DaemonError::BadRequest(format!("HEAD failed ({}) and GET fallback status {}", e, get_resp.status())));
+            if !get_resp.status().is_success()
+                && get_resp.status() != reqwest::StatusCode::PARTIAL_CONTENT
+            {
+                return Err(DaemonError::BadRequest(format!(
+                    "HEAD failed ({}) and GET fallback status {}",
+                    e,
+                    get_resp.status()
+                )));
             }
             get_resp
         }
@@ -952,7 +1001,7 @@ pub async fn patch_config(
             db.add_credential(&cred)?;
         }
     }
-    
+
     // Clear key in memory/disk config so it is never saved in plaintext
     body.captcha_api_key = None;
 
@@ -1151,7 +1200,7 @@ pub async fn add_rss_feed(
 ) -> Result<impl IntoResponse> {
     let db = state.database.lock().await;
     let id = Uuid::new_v4().to_string();
-    
+
     // Optional: Fetch the feed immediately to get the title
     let mut title = String::new();
     if let Ok(response) = reqwest::get(&body.url).await {
@@ -1179,9 +1228,7 @@ pub async fn add_rss_feed(
 }
 
 #[utoipa::path(get, path = "/api/v1/rss", responses((status = 200, description = "List RSS Feeds", body = [RssFeed])))]
-pub async fn get_all_rss_feeds(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse> {
+pub async fn get_all_rss_feeds(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse> {
     let db = state.database.lock().await;
     let feeds = db.get_all_rss_feeds()?;
     Ok(Json(feeds))
@@ -1201,30 +1248,29 @@ pub async fn delete_rss_feed(
 
 use vajra_engine::db::AuditLog;
 
-pub async fn get_audit_logs(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<AuditLog>>> {
+pub async fn get_audit_logs(State(state): State<Arc<AppState>>) -> Result<Json<Vec<AuditLog>>> {
     let db = state.database.lock().await;
     let logs = db.get_audit_logs(100)?;
     Ok(Json(logs))
 }
 
-pub async fn get_shared_queue(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn get_shared_queue(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     // Returns a simplified view of the active queue for sharing
     let statuses = state.manager.all_progress().await;
-    let simplified: Vec<serde_json::Value> = statuses.into_iter().map(|progress| {
-        serde_json::json!({
-            "id": progress.id,
-            "filename": progress.filename,
-            "bytes_downloaded": progress.bytes_downloaded,
-            "total_bytes": progress.total_bytes,
-            "progress_fraction": progress.progress_fraction,
-            "state": progress.state,
+    let simplified: Vec<serde_json::Value> = statuses
+        .into_iter()
+        .map(|progress| {
+            serde_json::json!({
+                "id": progress.id,
+                "filename": progress.filename,
+                "bytes_downloaded": progress.bytes_downloaded,
+                "total_bytes": progress.total_bytes,
+                "progress_fraction": progress.progress_fraction,
+                "state": progress.state,
+            })
         })
-    }).collect();
-    
+        .collect();
+
     Json(simplified)
 }
 
@@ -1260,7 +1306,8 @@ pub async fn import_config(
         scheduler_stop_time: body.scheduler_stop_time.clone(),
         client_id: db.load_settings().map(|x| x.client_id).unwrap_or_default(),
     };
-    db.save_settings(&s).map_err(|e| DaemonError::Internal(e.to_string()))?;
+    db.save_settings(&s)
+        .map_err(|e| DaemonError::Internal(e.to_string()))?;
 
     // 3. Update the download manager queue settings
     let q_settings = vajra_engine::queue::QueueSettings {
@@ -1288,39 +1335,47 @@ pub async fn preview_download(
 ) -> Result<impl IntoResponse> {
     use std::io::{Read, Write};
 
-    let progress = state.manager.progress(id).await
+    let progress = state
+        .manager
+        .progress(id)
+        .await
         .ok_or_else(|| DaemonError::NotFound(id))?;
 
     let src_path = std::path::Path::new(&progress.dest_path);
     if !src_path.exists() {
-        return Err(DaemonError::BadRequest("Download file does not exist yet".to_string()));
+        return Err(DaemonError::BadRequest(
+            "Download file does not exist yet".to_string(),
+        ));
     }
 
     // Determine target preview path in temporary directory
-    let filename = src_path.file_name()
+    let filename = src_path
+        .file_name()
         .ok_or_else(|| DaemonError::Internal("Invalid filename".to_string()))?;
-    
+
     let temp_dir = std::env::temp_dir();
     let preview_path = temp_dir.join(format!("preview_{}", filename.to_string_lossy()));
 
     // Copy the partial file (up to the current downloaded bytes size to avoid copy bloat of huge unallocated files)
-    let mut src_file = std::fs::File::open(src_path)
-        .map_err(|e| DaemonError::Internal(e.to_string()))?;
-    let mut dst_file = std::fs::File::create(&preview_path)
-        .map_err(|e| DaemonError::Internal(e.to_string()))?;
-    
+    let mut src_file =
+        std::fs::File::open(src_path).map_err(|e| DaemonError::Internal(e.to_string()))?;
+    let mut dst_file =
+        std::fs::File::create(&preview_path).map_err(|e| DaemonError::Internal(e.to_string()))?;
+
     let copy_limit = progress.bytes_downloaded.min(10 * 1024 * 1024).max(1024);
     let mut buffer = vec![0u8; 8192];
     let mut total_copied = 0;
-    
+
     while total_copied < copy_limit {
         let to_read = (copy_limit - total_copied).min(buffer.len() as u64) as usize;
-        let read = src_file.read(&mut buffer[..to_read])
+        let read = src_file
+            .read(&mut buffer[..to_read])
             .map_err(|e| DaemonError::Internal(e.to_string()))?;
         if read == 0 {
             break;
         }
-        dst_file.write_all(&buffer[..read])
+        dst_file
+            .write_all(&buffer[..read])
             .map_err(|e| DaemonError::Internal(e.to_string()))?;
         total_copied += read as u64;
     }

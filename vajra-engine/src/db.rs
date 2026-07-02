@@ -106,7 +106,9 @@ impl Database {
     /// Open (or create) the Vajra database at the given path.
     pub fn open(path: &Path) -> SqlResult<Self> {
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;")?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
+        )?;
         let db = Self { conn };
         db.migrate()?;
         Ok(db)
@@ -208,7 +210,10 @@ impl Database {
         )?;
 
         // Try adding the auto_rename column if it doesn't exist. Ignore error if it does.
-        let _ = self.conn.execute("ALTER TABLE history ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'", []);
+        let _ = self.conn.execute(
+            "ALTER TABLE history ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+            [],
+        );
         Ok(())
     }
 
@@ -515,10 +520,7 @@ impl Database {
                 "scheduler_stop_time",
                 s.scheduler_stop_time.clone().unwrap_or_default(),
             ),
-            (
-                "client_id",
-                s.client_id.clone(),
-            ),
+            ("client_id", s.client_id.clone()),
         ];
 
         for (k, v) in &pairs {
@@ -681,14 +683,16 @@ impl Database {
     }
 
     pub fn get_all_rss_feeds(&self) -> SqlResult<Vec<vajra_protocol::RssFeed>> {
-        let mut statement = self.conn.prepare("SELECT id, url, title, created_at FROM rss_feeds")?;
+        let mut statement = self
+            .conn
+            .prepare("SELECT id, url, title, created_at FROM rss_feeds")?;
         let rows = statement.query_map([], |row| {
             let created_str: String = row.get(3)?;
             let created_at = created_str
                 .parse::<DateTime<Utc>>()
                 .map(|t| t.timestamp())
                 .unwrap_or(0);
-            
+
             Ok(vajra_protocol::RssFeed {
                 id: row.get(0)?,
                 url: row.get(1)?,
@@ -700,11 +704,18 @@ impl Database {
     }
 
     pub fn delete_rss_feed(&self, id: &str) -> SqlResult<()> {
-        self.conn.execute("DELETE FROM rss_feeds WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM rss_feeds WHERE id = ?1", params![id])?;
         Ok(())
     }
 
-    pub fn add_rss_item(&self, id: &str, feed_id: &str, guid: &str, download_id: Option<&str>) -> SqlResult<()> {
+    pub fn add_rss_item(
+        &self,
+        id: &str,
+        feed_id: &str,
+        guid: &str,
+        download_id: Option<&str>,
+    ) -> SqlResult<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO rss_items (id, feed_id, guid, download_id, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -714,7 +725,9 @@ impl Database {
     }
 
     pub fn rss_item_exists(&self, feed_id: &str, guid: &str) -> SqlResult<bool> {
-        let mut stmt = self.conn.prepare("SELECT 1 FROM rss_items WHERE feed_id = ?1 AND guid = ?2")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT 1 FROM rss_items WHERE feed_id = ?1 AND guid = ?2")?;
         let exists = stmt.exists(params![feed_id, guid])?;
         Ok(exists)
     }
@@ -725,12 +738,7 @@ impl Database {
         self.conn.execute(
             "INSERT INTO audit_logs (id, action, details, created_at)
              VALUES (?1, ?2, ?3, ?4)",
-            params![
-                log.id,
-                log.action,
-                log.details,
-                log.created_at.to_rfc3339()
-            ],
+            params![log.id, log.action, log.details, log.created_at.to_rfc3339()],
         )?;
         Ok(())
     }
@@ -813,7 +821,9 @@ impl Database {
     }
 
     pub fn load_redirect(&self, job_id: &str) -> SqlResult<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT final_url FROM job_redirects WHERE job_id = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT final_url FROM job_redirects WHERE job_id = ?1")?;
         let mut rows = stmt.query(params![job_id])?;
         if let Some(row) = rows.next()? {
             let url: String = row.get(0)?;
@@ -840,7 +850,9 @@ impl Database {
     }
 
     pub fn find_duplicate_file(&self, hash: &str, exclude_path: &str) -> SqlResult<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT dest_path FROM file_hashes WHERE hash = ?1 AND dest_path != ?2")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT dest_path FROM file_hashes WHERE hash = ?1 AND dest_path != ?2")?;
         let mut rows = stmt.query(params![hash, exclude_path])?;
         if let Some(row) = rows.next()? {
             let path: String = row.get(0)?;

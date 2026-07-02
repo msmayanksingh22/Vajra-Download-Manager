@@ -5,8 +5,9 @@ use std::{
     io::{BufRead, BufReader, Read},
     path::Path,
 };
-use sha2::{Digest, Sha256};
+
 use md5::Md5;
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VerificationResult {
@@ -66,7 +67,7 @@ fn read_checksum_file(path: &Path, target_filename: &str) -> anyhow::Result<Stri
         if parts.is_empty() {
             continue;
         }
-        
+
         // If it's a standard checksum file format: `<hash> *<filename>`
         if parts.len() >= 2 {
             let hash = parts[0];
@@ -85,7 +86,10 @@ fn read_checksum_file(path: &Path, target_filename: &str) -> anyhow::Result<Stri
     let mut reader = BufReader::new(file);
     let mut first_line = String::new();
     reader.read_line(&mut first_line)?;
-    let hash = first_line.split_whitespace().next().ok_or_else(|| anyhow::anyhow!("Empty file"))?;
+    let hash = first_line
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Empty file"))?;
     Ok(hash.to_string())
 }
 

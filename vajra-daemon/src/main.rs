@@ -145,7 +145,7 @@ async fn main() -> anyhow::Result<()> {
 
     let sse = SseBroadcaster::new();
     let speed_tracker = speed_history::SpeedTracker::new(600); // 10 minutes at 1 Hz
-    
+
     // Use broadcast channel for shutdown - supports cloning so multiple callers can send signal
     let (shutdown_tx, mut serve_rx) = tokio::sync::broadcast::channel::<()>(1);
 
@@ -183,7 +183,7 @@ async fn main() -> anyhow::Result<()> {
         let mut was_down = false;
         loop {
             interval.tick().await;
-            
+
             let vpn_iface = {
                 let config = state_clone_vpn.config.read().await;
                 config.vpn_interface.clone()
@@ -192,7 +192,7 @@ async fn main() -> anyhow::Result<()> {
             if let Some(iface) = vpn_iface {
                 let networks = sysinfo::Networks::new_with_refreshed_list();
                 let is_up = networks.iter().any(|(name, _)| *name == iface);
-                
+
                 if !is_up && !was_down {
                     tracing::warn!("VPN kill switch activated! Interface {} is down. Pausing all active downloads.", iface);
                     let active = state_clone_vpn.manager.all_progress().await;
@@ -200,9 +200,9 @@ async fn main() -> anyhow::Result<()> {
                         // Pause tasks that are currently downloading or allocating
                         let is_active = matches!(
                             p.state,
-                            vajra_engine::download_task::TaskState::Downloading |
-                            vajra_engine::download_task::TaskState::FetchingMeta |
-                            vajra_engine::download_task::TaskState::Allocating
+                            vajra_engine::download_task::TaskState::Downloading
+                                | vajra_engine::download_task::TaskState::FetchingMeta
+                                | vajra_engine::download_task::TaskState::Allocating
                         );
                         if is_active {
                             let _ = state_clone_vpn.manager.pause(p.id).await;
@@ -348,7 +348,7 @@ async fn main() -> anyhow::Result<()> {
         let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key)
             .await
             .context("Failed to load TLS certificates")?;
-            
+
         axum_server::bind_rustls(addr, config)
             .serve(app.into_make_service())
             .await
@@ -598,44 +598,44 @@ async fn progress_loop(state: Arc<AppState>) {
             }
         }
 
-            let mut batch_items = Vec::new();
-            for p in &all {
-                if matches!(
-                    p.state,
-                    TaskState::Downloading | TaskState::Allocating | TaskState::FetchingMeta
-                ) {
-                    batch_items.push(vajra_protocol::BatchProgressItem {
-                        download_id: p.id,
-                        url: p.url.clone(),
-                        filename: p.filename.clone(),
-                        total_bytes: if p.total_bytes > 0 {
-                            Some(p.total_bytes)
-                        } else {
-                            None
-                        },
-                        downloaded_bytes: p.bytes_downloaded,
-                        speed_bps: p.speed_bps,
-                        eta_seconds: if p.eta_secs > 0 {
-                            Some(p.eta_secs)
-                        } else {
-                            None
-                        },
-                        status: api::schema::state_to_status(&p.state),
-                        resume_supported: p.resume_supported,
-                        segments: p.segments.clone(),
-                        error: p.error.clone(),
-                        speed_limit_bps: p.speed_limit_bps,
-                    });
-                }
-            }
-
-            if !batch_items.is_empty() {
-                state.sse.send(vajra_protocol::DaemonEvent::BatchProgress {
-                    downloads: batch_items,
+        let mut batch_items = Vec::new();
+        for p in &all {
+            if matches!(
+                p.state,
+                TaskState::Downloading | TaskState::Allocating | TaskState::FetchingMeta
+            ) {
+                batch_items.push(vajra_protocol::BatchProgressItem {
+                    download_id: p.id,
+                    url: p.url.clone(),
+                    filename: p.filename.clone(),
+                    total_bytes: if p.total_bytes > 0 {
+                        Some(p.total_bytes)
+                    } else {
+                        None
+                    },
+                    downloaded_bytes: p.bytes_downloaded,
+                    speed_bps: p.speed_bps,
+                    eta_seconds: if p.eta_secs > 0 {
+                        Some(p.eta_secs)
+                    } else {
+                        None
+                    },
+                    status: api::schema::state_to_status(&p.state),
+                    resume_supported: p.resume_supported,
+                    segments: p.segments.clone(),
+                    error: p.error.clone(),
+                    speed_limit_bps: p.speed_limit_bps,
                 });
             }
         }
+
+        if !batch_items.is_empty() {
+            state.sse.send(vajra_protocol::DaemonEvent::BatchProgress {
+                downloads: batch_items,
+            });
+        }
     }
+}
 // â”€â”€â”€ Scheduler loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async fn scheduler_loop(state: Arc<AppState>) {
@@ -799,19 +799,17 @@ async fn shutdown_signal() {
 }
 
 async fn webhook_loop(state: Arc<AppState>) {
-    use hmac::{Hmac, Mac, KeyInit};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
     let mut rx = state.sse.subscribe();
     let client = reqwest::Client::new();
     while let Ok(msg) = rx.recv().await {
         let (is_terminal, event_name) = match &*msg {
-            vajra_protocol::DaemonEvent::StateChange { status, .. } => {
-                match status {
-                    vajra_protocol::DownloadStatus::Completed => (true, "DownloadCompleted"),
-                    vajra_protocol::DownloadStatus::Failed => (true, "DownloadFailed"),
-                    _ => (false, ""),
-                }
-            }
+            vajra_protocol::DaemonEvent::StateChange { status, .. } => match status {
+                vajra_protocol::DownloadStatus::Completed => (true, "DownloadCompleted"),
+                vajra_protocol::DownloadStatus::Failed => (true, "DownloadFailed"),
+                _ => (false, ""),
+            },
             _ => (false, ""),
         };
 
@@ -824,7 +822,7 @@ async fn webhook_loop(state: Arc<AppState>) {
             if webhooks.is_empty() {
                 continue;
             }
-            
+
             let payload = serde_json::json!({
                 "event": event_name,
                 "data": &*msg
@@ -848,14 +846,15 @@ async fn webhook_loop(state: Arc<AppState>) {
                 let payload_str = payload_str.clone();
                 let sig = signature_header.clone();
                 tokio::spawn(async move {
-                    let mut req = client.post(&url)
+                    let mut req = client
+                        .post(&url)
                         .header("Content-Type", "application/json")
                         .body(payload_str);
-                        
+
                     if let Some(s) = sig {
                         req = req.header("X-Vajra-Signature", format!("sha256={}", s));
                     }
-                    
+
                     if let Err(e) = req.send().await {
                         tracing::warn!("Failed to send webhook to {}: {}", url, e);
                     } else {

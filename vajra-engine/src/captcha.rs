@@ -18,7 +18,11 @@ impl CaptchaSolver {
     }
 
     /// Submit a reCAPTCHA v2 solving request and wait for the response token.
-    pub async fn solve_recaptcha_v2(&self, site_key: &str, page_url: &str) -> anyhow::Result<String> {
+    pub async fn solve_recaptcha_v2(
+        &self,
+        site_key: &str,
+        page_url: &str,
+    ) -> anyhow::Result<String> {
         let submit_url = format!(
             "http://2captcha.com/in.php?key={}&method=userrecaptcha&googlekey={}&pageurl={}&json=1",
             self.api_key, site_key, page_url
@@ -37,7 +41,7 @@ impl CaptchaSolver {
 
         let captcha_id = res.request;
         let mut attempts = 0;
-        
+
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             attempts += 1;

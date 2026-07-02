@@ -6,7 +6,7 @@ use std::{
 #[tokio::test]
 async fn test_api_integration() {
     let binary = env!("CARGO_BIN_EXE_vajrad");
-    
+
     // We start the daemon
     let mut child = Command::new(binary)
         .stdout(Stdio::null())
@@ -26,15 +26,27 @@ async fn test_api_integration() {
     let base_url = "http://127.0.0.1:6277";
 
     // 1. Health
-    let resp = client.get(format!("{}/health", base_url)).send().await.unwrap();
+    let resp = client
+        .get(format!("{}/health", base_url))
+        .send()
+        .await
+        .unwrap();
     assert!(resp.status().is_success());
 
     // 2. Config GET
-    let resp = client.get(format!("{}/api/v1/config", base_url)).send().await.unwrap();
+    let resp = client
+        .get(format!("{}/api/v1/config", base_url))
+        .send()
+        .await
+        .unwrap();
     assert!(resp.status().is_success());
 
     // 3. Downloads list GET
-    let resp = client.get(format!("{}/api/v1/downloads", base_url)).send().await.unwrap();
+    let resp = client
+        .get(format!("{}/api/v1/downloads", base_url))
+        .send()
+        .await
+        .unwrap();
     assert!(resp.status().is_success());
     let json: serde_json::Value = resp.json().await.unwrap();
     assert!(json.is_object());

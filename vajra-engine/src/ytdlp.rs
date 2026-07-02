@@ -76,7 +76,9 @@ pub async fn download_ytdlp(
         }
     }
     if req.ytdlp_subtitles {
-        cmd.arg("--write-subs").arg("--write-auto-subs").arg("--embed-subs");
+        cmd.arg("--write-subs")
+            .arg("--write-auto-subs")
+            .arg("--embed-subs");
     }
     if req.ytdlp_playlist {
         cmd.arg("--yes-playlist");
@@ -98,7 +100,10 @@ pub async fn download_ytdlp(
     cmd.stdin(Stdio::null());
 
     let mut child = cmd.spawn()?;
-    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to capture yt-dlp stdout"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Failed to capture yt-dlp stdout"))?;
     let mut reader = BufReader::new(stdout).lines();
 
     loop {

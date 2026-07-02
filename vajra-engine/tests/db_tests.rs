@@ -1,4 +1,3 @@
-
 use chrono::Utc;
 use tempfile::tempdir;
 use vajra_engine::db::{AppSettings, Database, HistoryEntry, JobRecord, VaultCredential};

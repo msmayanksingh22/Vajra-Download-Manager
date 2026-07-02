@@ -1,6 +1,6 @@
-use quick_xml::Reader;
-use quick_xml::events::Event;
 use std::collections::HashMap;
+
+use quick_xml::{events::Event, Reader};
 
 #[derive(Debug, thiserror::Error)]
 pub enum MetalinkError {
@@ -29,16 +29,16 @@ pub struct MetalinkUrl {
 
 pub fn parse_metalink(xml: &str) -> Result<Metalink, MetalinkError> {
     let mut reader = Reader::from_str(xml);
-    
+
     let mut metalink = Metalink { files: Vec::new() };
     let mut current_file = None;
     let mut current_url = None;
     let mut current_hash_type = None;
     let mut in_hashes = false;
     let mut in_size = false;
-    
+
     let mut buf = Vec::new();
-    
+
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => match e.name().as_ref() {
@@ -95,14 +95,16 @@ pub fn parse_metalink(xml: &str) -> Result<Metalink, MetalinkError> {
             },
             Ok(Event::Text(ref e)) => {
                 let text = e.unescape().ok().map(|s| s.trim().to_string());
-                
+
                 if let Some(text) = text {
                     if text.is_empty() {
                         buf.clear();
                         continue;
                     }
                     if in_hashes {
-                        if let (Some(ref mut file), Some(hash_type)) = (&mut current_file, &current_hash_type) {
+                        if let (Some(ref mut file), Some(hash_type)) =
+                            (&mut current_file, &current_hash_type)
+                        {
                             file.hashes.insert(hash_type.clone(), text);
                         }
                     } else if let Some(ref mut url) = current_url {
@@ -142,6 +144,6 @@ pub fn parse_metalink(xml: &str) -> Result<Metalink, MetalinkError> {
         }
         buf.clear();
     }
-    
+
     Ok(metalink)
 }

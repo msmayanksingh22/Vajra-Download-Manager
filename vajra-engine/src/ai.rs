@@ -41,7 +41,10 @@ pub fn clean_filename_ml(filename: &str) -> String {
     // Separate stem and extension
     let path = std::path::Path::new(filename);
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(filename);
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(filename);
 
     // Extract duplicate suffix if any (e.g. " (1)" at the end of the stem)
     let mut stem_to_clean = stem.to_string();
@@ -55,12 +58,12 @@ pub fn clean_filename_ml(filename: &str) -> String {
 
     // Replace dots with spaces in the stem only
     let mut cleaned = stem_to_clean.replace(".", " ");
-    
+
     // Regex patterns for common scene tags
     let patterns = [
         r"(?i)(1080p|720p|2160p|4k|8k|x264|x265|h264|h265|HEVC|BluRay|BRRip|HDRip|WEBRip|WEB-DL|HDTV)",
         r"(?i)(\[.*?\]|\(.*?\))", // Remove anything in brackets or parentheses
-        r"(?i)(- ?[A-Za-z0-9]+$)" // Remove trailing group names (e.g., -YTS or -RBG)
+        r"(?i)(- ?[A-Za-z0-9]+$)", // Remove trailing group names (e.g., -YTS or -RBG)
     ];
 
     for pattern in patterns {
@@ -73,7 +76,7 @@ pub fn clean_filename_ml(filename: &str) -> String {
     if let Ok(re) = regex::Regex::new(r"\s{2,}") {
         cleaned = re.replace_all(&cleaned, " ").to_string();
     }
-    
+
     let cleaned_stem = format!("{}{}", cleaned.trim(), suffix);
     let cleaned_stem = cleaned_stem.trim();
     if extension.is_empty() {
@@ -90,10 +93,10 @@ pub fn predict_optimal_connections(file_size_bytes: u64, latency_ms: Option<u64>
     }
 
     let mut connections = match file_size_bytes {
-        0..=1_048_576 => 1, // <= 1MB
-        1_048_577..=10_485_760 => 4, // 1MB - 10MB
+        0..=1_048_576 => 1,            // <= 1MB
+        1_048_577..=10_485_760 => 4,   // 1MB - 10MB
         10_485_761..=524_288_000 => 8, // 10MB - 500MB
-        _ => 16, // > 500MB
+        _ => 16,                       // > 500MB
     };
 
     // If server latency is very high, reduce connections to avoid congestion
@@ -113,18 +116,18 @@ mod tests {
     #[test]
     fn test_anomaly_detection() {
         let mut detector = AnomalyDetector::new(10);
-        
+
         // Feed some good speeds
         for _ in 0..5 {
             detector.record_speed(5000.0);
         }
         assert!(!detector.is_stuck());
-        
+
         // Feed 5 zeros
         for _ in 0..5 {
             detector.record_speed(0.0);
         }
-        
+
         // It should now be flagged as stuck
         assert!(detector.is_stuck());
     }
@@ -134,6 +137,9 @@ mod tests {
         assert_eq!(clean_filename_ml("Ollama.dmg"), "Ollama.dmg");
         assert_eq!(clean_filename_ml("Ollama (1).dmg"), "Ollama (1).dmg");
         assert_eq!(clean_filename_ml("Ollama (12).dmg"), "Ollama (12).dmg");
-        assert_eq!(clean_filename_ml("Movie.Title.2024.1080p.BluRay.x264.mkv"), "Movie Title 2024.mkv");
+        assert_eq!(
+            clean_filename_ml("Movie.Title.2024.1080p.BluRay.x264.mkv"),
+            "Movie Title 2024.mkv"
+        );
     }
 }

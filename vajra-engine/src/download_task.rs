@@ -20,21 +20,17 @@ use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, Mutex, RwLock};
 use uuid::Uuid;
-
-use crate::{
-    allocator::allocate_file_space,
-    multiplexer::{calculate_chunks, start_download, ChunkPayload, DEFAULT_CHANNEL_CAPACITY},
-
-    throttle::{CombinedThrottle, Throttle},
-    writer::{start_disk_writer, DataFrame},
-};
+// ─── Public types ─────────────────────────────────────────────────────────────
+pub use vajra_protocol::QueueType;
 
 // ─── Tuning ──────────────────────────────────────────────────────────────────
 use crate::constants::*;
-
-// ─── Public types ─────────────────────────────────────────────────────────────
-
-pub use vajra_protocol::QueueType;
+use crate::{
+    allocator::allocate_file_space,
+    multiplexer::{calculate_chunks, start_download, ChunkPayload, DEFAULT_CHANNEL_CAPACITY},
+    throttle::{CombinedThrottle, Throttle},
+    writer::{start_disk_writer, DataFrame},
+};
 
 /// A download request submitted by the frontend or extension.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -412,7 +408,11 @@ async fn run_download(
             // Verify PGP signature if present
             let dest_path = Path::new(&p.dest_path);
             if let Some(verified) = crate::cryptography::verify_pgp_signature(dest_path) {
-                tracing::info!("PGP signature verification outcome for {:?}: {}", dest_path, verified);
+                tracing::info!(
+                    "PGP signature verification outcome for {:?}: {}",
+                    dest_path,
+                    verified
+                );
             }
 
             let dest_path = PathBuf::from(&p.dest_path);
@@ -504,7 +504,10 @@ async fn run_download(
 
                         match db.find_duplicate_file(&hash, &p.dest_path) {
                             Ok(Some(existing_path)) => {
-                                tracing::warn!("Content duplicate detected! File has same content hash as: {}", existing_path);
+                                tracing::warn!(
+                                    "Content duplicate detected! File has same content hash as: {}",
+                                    existing_path
+                                );
                                 p.error = Some(format!("Content duplicate of: {}", existing_path));
                             }
                             _ => {}
@@ -591,8 +594,14 @@ async fn download_inner(
         value.set_sensitive(true);
         default_headers.insert(header::AUTHORIZATION, value);
     }
-    let timeout = req.timeout_secs.map(Duration::from_secs).unwrap_or(REQUEST_TIMEOUT);
-    let connect_timeout = req.connect_timeout_secs.map(Duration::from_secs).unwrap_or(CONNECT_TIMEOUT);
+    let timeout = req
+        .timeout_secs
+        .map(Duration::from_secs)
+        .unwrap_or(REQUEST_TIMEOUT);
+    let connect_timeout = req
+        .connect_timeout_secs
+        .map(Duration::from_secs)
+        .unwrap_or(CONNECT_TIMEOUT);
 
     let mut proxy_list = req.proxies.clone();
     if proxy_list.is_empty() {
@@ -627,7 +636,11 @@ async fn download_inner(
                             resolved_doh_ip = Some((host.to_string(), ip));
                         }
                         Err(e) => {
-                            tracing::warn!("DoH failed for '{}': {}. Falling back to default DNS.", host, e);
+                            tracing::warn!(
+                                "DoH failed for '{}': {}. Falling back to default DNS.",
+                                host,
+                                e
+                            );
                         }
                     }
                 }
@@ -670,8 +683,9 @@ async fn download_inner(
                 .default_headers(default_headers.clone())
                 .user_agent(rotated_ua);
             if let Some((ref host, ip)) = resolved_doh_ip {
-                b = b.resolve(host, std::net::SocketAddr::new(ip, 80))
-                     .resolve(host, std::net::SocketAddr::new(ip, 443));
+                b = b
+                    .resolve(host, std::net::SocketAddr::new(ip, 80))
+                    .resolve(host, std::net::SocketAddr::new(ip, 443));
             }
             if u_h3 {
                 b = b.http3_prior_knowledge();
@@ -687,7 +701,11 @@ async fn download_inner(
             clients.push(create_builder().build()?);
         } else {
             for proxy in &proxy_list {
-                clients.push(create_builder().proxy(reqwest::Proxy::all(proxy)?).build()?);
+                clients.push(
+                    create_builder()
+                        .proxy(reqwest::Proxy::all(proxy)?)
+                        .build()?,
+                );
             }
         }
         Ok(clients[0].clone())
@@ -731,35 +749,54 @@ async fn download_inner(
                 match response {
                     Ok(resp) => {
                         let status = resp.status();
-                        let is_html = resp.headers()
+                        let is_html = resp
+                            .headers()
                             .get(header::CONTENT_TYPE)
                             .and_then(|v| v.to_str().ok())
                             .map(|s| s.contains("text/html"))
                             .unwrap_or(false);
 
-                        if status == reqwest::StatusCode::FORBIDDEN 
-                           || status == reqwest::StatusCode::TOO_MANY_REQUESTS
-                           || (status.is_success() && is_html) 
+                        if status == reqwest::StatusCode::FORBIDDEN
+                            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                            || (status.is_success() && is_html)
                         {
                             if let Ok(body_text) = resp.text().await {
                                 let mut site_key = None;
-                                if let Some(cap) = regex::Regex::new(r#"data-sitekey=["']([A-Za-z0-9_-]{40})["']"#).ok().and_then(|re| re.captures(&body_text)) {
+                                if let Some(cap) =
+                                    regex::Regex::new(r#"data-sitekey=["']([A-Za-z0-9_-]{40})["']"#)
+                                        .ok()
+                                        .and_then(|re| re.captures(&body_text))
+                                {
                                     site_key = Some(cap[1].to_string());
-                                } else if let Some(cap) = regex::Regex::new(r#"sitekey\s*:\s*["']([A-Za-z0-9_-]{40})["']"#).ok().and_then(|re| re.captures(&body_text)) {
+                                } else if let Some(cap) = regex::Regex::new(
+                                    r#"sitekey\s*:\s*["']([A-Za-z0-9_-]{40})["']"#,
+                                )
+                                .ok()
+                                .and_then(|re| re.captures(&body_text))
+                                {
                                     site_key = Some(cap[1].to_string());
                                 }
 
                                 if let Some(skey) = site_key {
                                     tracing::info!("Detected reCAPTCHA v2 sitekey: {}", skey);
-                                    let captcha_api_key = db.get_credential_by_domain("2captcha.com").ok().flatten().map(|c| c.password);
+                                    let captcha_api_key = db
+                                        .get_credential_by_domain("2captcha.com")
+                                        .ok()
+                                        .flatten()
+                                        .map(|c| c.password);
                                     if let Some(apikey) = captcha_api_key {
                                         emit(tx, id, |p| p.state = TaskState::SolvingCaptcha);
                                         let solver = crate::captcha::CaptchaSolver::new(apikey);
                                         match solver.solve_recaptcha_v2(&skey, &target_url).await {
                                             Ok(token) => {
                                                 tracing::info!("Captcha solved successfully!");
-                                                if let Ok(mut url_parsed) = url::Url::parse(&target_url) {
-                                                    url_parsed.query_pairs_mut().append_pair("g-recaptcha-response", &token);
+                                                if let Ok(mut url_parsed) =
+                                                    url::Url::parse(&target_url)
+                                                {
+                                                    url_parsed.query_pairs_mut().append_pair(
+                                                        "g-recaptcha-response",
+                                                        &token,
+                                                    );
                                                     target_url = url_parsed.to_string();
                                                 }
                                                 emit(tx, id, |p| p.state = TaskState::FetchingMeta);
@@ -775,16 +812,19 @@ async fn download_inner(
                                 }
                             }
                             None
-                        } else if status.is_success() || status == reqwest::StatusCode::PARTIAL_CONTENT {
-                            let real_total: Option<u64> = if status == reqwest::StatusCode::PARTIAL_CONTENT {
-                                resp.headers()
-                                    .get(header::CONTENT_RANGE)
-                                    .and_then(|v| v.to_str().ok())
-                                    .and_then(|v| v.split('/').next_back())
-                                    .and_then(|s| s.trim().parse::<u64>().ok())
-                            } else {
-                                None
-                            };
+                        } else if status.is_success()
+                            || status == reqwest::StatusCode::PARTIAL_CONTENT
+                        {
+                            let real_total: Option<u64> =
+                                if status == reqwest::StatusCode::PARTIAL_CONTENT {
+                                    resp.headers()
+                                        .get(header::CONTENT_RANGE)
+                                        .and_then(|v| v.to_str().ok())
+                                        .and_then(|v| v.split('/').next_back())
+                                        .and_then(|s| s.trim().parse::<u64>().ok())
+                                } else {
+                                    None
+                                };
                             Some((resp, real_total))
                         } else {
                             None
@@ -800,7 +840,10 @@ async fn download_inner(
         }
 
         if use_http3 {
-            tracing::warn!("HTTP/3 probe failed for {}. Re-attempting connection fallback with HTTP/2.", req.url);
+            tracing::warn!(
+                "HTTP/3 probe failed for {}. Re-attempting connection fallback with HTTP/2.",
+                req.url
+            );
             use_http3 = false;
             if let Ok(fallback_client) = create_clients(false) {
                 primary_client = fallback_client;
@@ -809,7 +852,10 @@ async fn download_inner(
         }
 
         if used_cache {
-            tracing::warn!("Cached final URL probe failed. Falling back to original URL: {}", req.url);
+            tracing::warn!(
+                "Cached final URL probe failed. Falling back to original URL: {}",
+                req.url
+            );
             target_url = req.url.clone();
             used_cache = false;
         } else {
@@ -860,10 +906,9 @@ async fn download_inner(
         .filter(|s| !s.trim().is_empty())
         .or_else(|| detect_filename_from_header(headers))
         .unwrap_or_else(|| detect_filename_from_url(&req.url));
-        
+
     // Phase 5: Clean up Scene tags / junk characters using basic AI/ML heuristic
     filename = crate::ai::clean_filename_ml(&filename);
-
 
     if !filename.contains('.') {
         if let Some(content_type) = headers
@@ -901,7 +946,8 @@ async fn download_inner(
 
     let dest_path = req.dest_dir.join(&filename);
 
-    let predicted_connections = crate::ai::predict_optimal_connections(total_bytes, Some(latency_ms));
+    let predicted_connections =
+        crate::ai::predict_optimal_connections(total_bytes, Some(latency_ms));
     // Use predicted unless user specifically requested a lower/different count (we cap at user's max)
     let max_connections = if req.max_connections < 32 {
         req.max_connections.max(1) as usize
@@ -1050,9 +1096,10 @@ async fn download_inner(
     // ── Start multiplexed download ────────────────────────────────────────
     let mut mirror_urls = vec![final_url.clone()];
     mirror_urls.extend(req.mirrors.clone());
-    let mirror_manager = Arc::new(tokio::sync::Mutex::new(
-        crate::mirror::MirrorManager::new(mirror_urls, primary_client.clone())
-    ));
+    let mirror_manager = Arc::new(tokio::sync::Mutex::new(crate::mirror::MirrorManager::new(
+        mirror_urls,
+        primary_client.clone(),
+    )));
 
     let mux_handle = start_download(
         primary_client,
@@ -1460,8 +1507,6 @@ fn percent_decode(s: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&out).into_owned())
 }
 
-
-
 /// Rolling speed window — calculates bytes/sec over the last ~1 second.
 struct SpeedWindow {
     last_bytes: u64,
@@ -1512,7 +1557,8 @@ async fn resolve_doh(host: &str) -> anyhow::Result<std::net::IpAddr> {
         .timeout(Duration::from_secs(5))
         .build()?;
     let url = format!("https://cloudflare-dns.com/dns-query?name={}&type=A", host);
-    let res = client.get(&url)
+    let res = client
+        .get(&url)
         .header("Accept", "application/dns-json")
         .send()
         .await?;

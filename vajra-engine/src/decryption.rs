@@ -4,21 +4,22 @@
 //! via external APIs.
 
 use std::path::Path;
+
 use reqwest::Client;
 
 /// Decrypt a DLC file using an external decrypter API (e.g. dcrypt.it).
-pub async fn decrypt_dlc_file(client: &Client, api_url: &str, file_path: &Path) -> anyhow::Result<Vec<String>> {
+pub async fn decrypt_dlc_file(
+    client: &Client,
+    api_url: &str,
+    file_path: &Path,
+) -> anyhow::Result<Vec<String>> {
     let file_bytes = tokio::fs::read(file_path).await?;
     let part = reqwest::multipart::Part::bytes(file_bytes)
         .file_name("file.dlc")
         .mime_str("application/octet-stream")?;
     let form = reqwest::multipart::Form::new().part("dlcfile", part);
 
-    let res = client
-        .post(api_url)
-        .multipart(form)
-        .send()
-        .await?;
+    let res = client.post(api_url).multipart(form).send().await?;
 
     if !res.status().is_success() {
         anyhow::bail!("DLC decryption API returned status: {}", res.status());
@@ -29,7 +30,7 @@ pub async fn decrypt_dlc_file(client: &Client, api_url: &str, file_path: &Path) 
     struct DcryptResponse {
         success: Option<DcryptSuccess>,
     }
-    
+
     #[derive(serde::Deserialize)]
     struct DcryptSuccess {
         links: Vec<String>,

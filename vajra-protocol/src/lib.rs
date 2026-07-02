@@ -88,7 +88,9 @@ pub enum DownloadAction {
     Retry,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord, utoipa::ToSchema)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord, utoipa::ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Priority {
     High,

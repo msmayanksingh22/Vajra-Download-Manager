@@ -4,8 +4,9 @@
 //! to safely roll out UX or engine changes to a subset of clients.
 
 use std::collections::HashMap;
-use sha2::{Digest, Sha256};
+
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Experiment {

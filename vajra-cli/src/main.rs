@@ -589,14 +589,14 @@ async fn cmd_inspect(client: &Client, url: &str) -> Result<()> {
 }
 
 async fn cmd_import(client: &Client, file: &str, queue_only: bool) -> Result<()> {
-    let content = std::fs::read_to_string(file)
-        .with_context(|| format!("Failed to read {}", file))?;
-        
+    let content =
+        std::fs::read_to_string(file).with_context(|| format!("Failed to read {}", file))?;
+
     let body = vajra_protocol::ImportEf2Request {
         content,
         paused: queue_only,
     };
-    
+
     let resp = client
         .post(api("/import/ef2"))
         .json(&body)
@@ -605,13 +605,21 @@ async fn cmd_import(client: &Client, file: &str, queue_only: bool) -> Result<()>
         .error_for_status()?
         .json::<vajra_protocol::ImportEf2Response>()
         .await?;
-        
-    println!("{}", console::style(format!("Successfully imported {} downloads.", resp.imported_count)).green().bold());
-    
+
+    println!(
+        "{}",
+        console::style(format!(
+            "Successfully imported {} downloads.",
+            resp.imported_count
+        ))
+        .green()
+        .bold()
+    );
+
     for err in resp.errors {
         println!("{}", console::style(format!("- Error: {}", err)).red());
     }
-    
+
     Ok(())
 }
 

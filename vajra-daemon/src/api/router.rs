@@ -9,10 +9,10 @@ use axum::{
     routing::{delete, get, patch, post},
     Router,
 };
+use dav_server::{localfs::LocalFs, DavHandler};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use dav_server::{localfs::LocalFs, DavHandler};
 
 use crate::{api::handlers, AppState};
 
@@ -138,7 +138,10 @@ pub async fn build(state: Arc<AppState>) -> Router {
     let dav_server = Arc::new(dav_server);
 
     let dav_router = Router::new()
-        .route("/*path", axum::routing::any(crate::api::webdav::webdav_handler))
+        .route(
+            "/*path",
+            axum::routing::any(crate::api::webdav::webdav_handler),
+        )
         .route("/", axum::routing::any(crate::api::webdav::webdav_handler))
         .with_state(dav_server);
 

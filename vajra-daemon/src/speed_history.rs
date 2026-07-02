@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
+
 use tokio::sync::RwLock;
 
 pub struct SpeedTracker {

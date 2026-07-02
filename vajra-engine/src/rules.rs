@@ -1,7 +1,9 @@
-use regex::Regex;
 use std::path::PathBuf;
-use crate::download_task::DownloadRequest;
+
+use regex::Regex;
 use vajra_protocol::Priority;
+
+use crate::download_task::DownloadRequest;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AutomationRule {
@@ -79,8 +81,9 @@ impl RulesEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use vajra_protocol::QueueType;
+
+    use super::*;
 
     #[test]
     fn test_rule_extension_equals() {

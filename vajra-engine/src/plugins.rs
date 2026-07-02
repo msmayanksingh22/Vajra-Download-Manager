@@ -1,5 +1,6 @@
-use extism::{Plugin, Manifest, Wasm};
 use std::collections::HashMap;
+
+use extism::{Manifest, Plugin, Wasm};
 
 pub struct PluginManager {
     plugins: HashMap<String, Plugin>,
@@ -13,7 +14,9 @@ impl Default for PluginManager {
 
 impl PluginManager {
     pub fn new() -> Self {
-        Self { plugins: HashMap::new() }
+        Self {
+            plugins: HashMap::new(),
+        }
     }
 
     pub fn load_plugin(&mut self, name: &str, wasm_bytes: &[u8]) -> Result<(), extism::Error> {
@@ -24,7 +27,11 @@ impl PluginManager {
         Ok(())
     }
 
-    pub fn extract_links(&mut self, plugin_name: &str, url: &str) -> Result<Vec<String>, extism::Error> {
+    pub fn extract_links(
+        &mut self,
+        plugin_name: &str,
+        url: &str,
+    ) -> Result<Vec<String>, extism::Error> {
         if let Some(plugin) = self.plugins.get_mut(plugin_name) {
             let res = plugin.call::<&str, &str>("extract", url)?;
             // Assume the plugin returns a JSON array of URLs

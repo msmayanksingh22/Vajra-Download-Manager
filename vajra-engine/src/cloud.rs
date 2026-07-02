@@ -22,7 +22,10 @@ pub fn is_cloud_link(url_str: &str) -> bool {
 /// Translates a consumer cloud share link into a direct download URL.
 pub async fn translate_cloud_link(url_str: &str) -> anyhow::Result<String> {
     let url = Url::parse(url_str)?;
-    let host = url.host_str().ok_or_else(|| anyhow::anyhow!("No host in URL"))?.to_lowercase();
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("No host in URL"))?
+        .to_lowercase();
 
     // 1. Google Drive
     if host.contains("drive.google.com") {
@@ -33,14 +36,20 @@ pub async fn translate_cloud_link(url_str: &str) -> anyhow::Result<String> {
             if let Some(idx) = seg_vec.iter().position(|&s| s == "d") {
                 if idx + 1 < seg_vec.len() {
                     let file_id = seg_vec[idx + 1];
-                    return Ok(format!("https://drive.google.com/uc?export=download&id={}", file_id));
+                    return Ok(format!(
+                        "https://drive.google.com/uc?export=download&id={}",
+                        file_id
+                    ));
                 }
             }
         }
         // Handle query parameter id: https://drive.google.com/open?id={FILE_ID}
         for (key, val) in url.query_pairs() {
             if key == "id" {
-                return Ok(format!("https://drive.google.com/uc?export=download&id={}", val));
+                return Ok(format!(
+                    "https://drive.google.com/uc?export=download&id={}",
+                    val
+                ));
             }
         }
     }
@@ -49,14 +58,18 @@ pub async fn translate_cloud_link(url_str: &str) -> anyhow::Result<String> {
     if host.contains("dropbox.com") {
         // Change dl=0 to dl=1, or replace host with dl.dropboxusercontent.com
         let mut new_url = url.clone();
-        let mut query_pairs: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+        let mut query_pairs: Vec<(String, String)> = url
+            .query_pairs()
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
         if let Some(pos) = query_pairs.iter().position(|(k, _)| k == "dl") {
             query_pairs[pos].1 = "1".to_string();
         } else {
             query_pairs.push(("dl".to_string(), "1".to_string()));
         }
-        
-        let query_str = query_pairs.iter()
+
+        let query_str = query_pairs
+            .iter()
             .map(|(k, v)| format!("{}={}", k, v))
             .collect::<Vec<String>>()
             .join("&");
@@ -67,10 +80,16 @@ pub async fn translate_cloud_link(url_str: &str) -> anyhow::Result<String> {
     // 3. OneDrive
     if host.contains("onedrive.live.com") {
         // Replace "redir" with "download" in URL query or path
-        let query_pairs: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+        let query_pairs: Vec<(String, String)> = url
+            .query_pairs()
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
         if let Some(pos) = query_pairs.iter().position(|(k, _)| k == "resid") {
             let resid = query_pairs[pos].1.clone();
-            let authkey = query_pairs.iter().find(|(k, _)| k == "authkey").map(|(_, v)| v.clone());
+            let authkey = query_pairs
+                .iter()
+                .find(|(k, _)| k == "authkey")
+                .map(|(_, v)| v.clone());
             let mut download_url = format!("https://onedrive.live.com/download?resid={}", resid);
             if let Some(key) = authkey {
                 download_url.push_str(&format!("&authkey={}", key));

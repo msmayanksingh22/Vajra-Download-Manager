@@ -28,7 +28,6 @@ use tokio::{
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
 use crate::constants::*;
 
 /// Base delay for the first retry; doubles on each subsequent attempt.
@@ -295,7 +294,8 @@ pub fn start_download(
                 set_status(&shared, current_chunk.id, ChunkStatus::Connecting).await;
 
                 // ── 2. Execute with retry ─────────────────────────────────────
-                let outcome = run_chunk(&client, &mirror_manager, &current_chunk, &tx, &shared).await;
+                let outcome =
+                    run_chunk(&client, &mirror_manager, &current_chunk, &tx, &shared).await;
 
                 // ── 3. Persist final status ───────────────────────────────────
                 let final_status = match &outcome {
@@ -409,7 +409,7 @@ async fn run_chunk(
     let mut last_error = String::new();
     let mut bytes_emitted = 0_u64;
     let mut local_end_byte = chunk.end_byte;
-    
+
     // Get initial mirror
     let mut current_url = {
         let mgr = mirror_manager.lock().await;
@@ -429,12 +429,17 @@ async fn run_chunk(
         if attempt > 0 {
             set_retry_count(shared, chunk.id, attempt as usize).await;
             set_status(shared, chunk.id, ChunkStatus::Connecting).await;
-            
+
             // On retry, try to swap mirror
-            if let Some(new_mirror) = mirror_manager.lock().await.handle_mirror_failure(&current_url, chunk.id).await {
+            if let Some(new_mirror) = mirror_manager
+                .lock()
+                .await
+                .handle_mirror_failure(&current_url, chunk.id)
+                .await
+            {
                 current_url = new_mirror;
             }
-            
+
             // 0 → 250 ms, 1 → 500 ms, 2 → 1 000 ms
             let delay = BASE_BACKOFF * 2u32.pow(attempt - 1);
             sleep(delay).await;
@@ -725,12 +730,7 @@ mod tests {
             vec!["http://127.0.0.1:0/nonexistent".to_string()],
             client.clone(),
         )));
-        let handle = start_download(
-            client,
-            mirror_manager,
-            chunks,
-            DEFAULT_CHANNEL_CAPACITY,
-        );
+        let handle = start_download(client, mirror_manager, chunks, DEFAULT_CHANNEL_CAPACITY);
 
         // The registry must contain the chunks we provided.
         let guard = handle.chunks.lock().await;

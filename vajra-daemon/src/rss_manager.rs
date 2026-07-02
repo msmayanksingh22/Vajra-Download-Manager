@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+
 use tokio::time;
-use tracing::{error, info, debug};
+use tracing::{debug, error, info};
 use uuid::Uuid;
+use vajra_engine::download_task::DownloadRequest;
 
 use crate::AppState;
-use vajra_engine::download_task::DownloadRequest;
 
 pub struct RssManager;
 
@@ -38,8 +38,11 @@ impl RssManager {
                                 if let Ok(channel) = rss::Channel::read_from(&bytes[..]) {
                                     for item in channel.items() {
                                         if let Some(enclosure) = item.enclosure() {
-                                            let guid = item.guid().map(|g| g.value()).unwrap_or(enclosure.url());
-                                            
+                                            let guid = item
+                                                .guid()
+                                                .map(|g| g.value())
+                                                .unwrap_or(enclosure.url());
+
                                             let db = state.database.lock().await;
                                             match db.rss_item_exists(&feed.id, guid) {
                                                 Ok(false) => {
@@ -48,8 +51,17 @@ impl RssManager {
                                                     let req = DownloadRequest {
                                                         url: enclosure.url().to_string(),
                                                         mirrors: vec![],
-                                                        dest_dir: std::path::PathBuf::from(state.config.read().await.default_output_dir.clone()),
-                                                        filename: item.title().map(|t| format!("{}.mp3", t.replace("/", "_"))),
+                                                        dest_dir: std::path::PathBuf::from(
+                                                            state
+                                                                .config
+                                                                .read()
+                                                                .await
+                                                                .default_output_dir
+                                                                .clone(),
+                                                        ),
+                                                        filename: item.title().map(|t| {
+                                                            format!("{}.mp3", t.replace("/", "_"))
+                                                        }),
                                                         timeout_secs: None,
                                                         connect_timeout_secs: None,
                                                         max_connections: 8,
@@ -78,24 +90,36 @@ impl RssManager {
                                                         schedule_at: None,
                                                         daemon_config: None,
                                                         priority: vajra_protocol::Priority::Normal,
-                                                        tags: vec!["rss".to_string(), feed.title.clone()],
+                                                        tags: vec![
+                                                            "rss".to_string(),
+                                                            feed.title.clone(),
+                                                        ],
                                                         tcp_multiplexing_opt: false,
                                                         adaptive_chunk_v2: false,
                                                     };
-                                                    
+
                                                     // Insert to db to prevent duplicate downloads
                                                     if let Err(e) = db.add_rss_item(
                                                         &Uuid::new_v4().to_string(),
                                                         &feed.id,
                                                         guid,
-                                                        Some(&download_id.to_string())
+                                                        Some(&download_id.to_string()),
                                                     ) {
-                                                        error!("Failed to add RSS item to DB: {}", e);
+                                                        error!(
+                                                            "Failed to add RSS item to DB: {}",
+                                                            e
+                                                        );
                                                     }
-                                                    
+
                                                     drop(db); // Drop lock before adding to manager
-                                                    state.manager.add_with_id(download_id, req).await;
-                                                    info!("Added RSS enclosure to download queue: {}", enclosure.url());
+                                                    state
+                                                        .manager
+                                                        .add_with_id(download_id, req)
+                                                        .await;
+                                                    info!(
+                                                        "Added RSS enclosure to download queue: {}",
+                                                        enclosure.url()
+                                                    );
                                                 }
                                                 Ok(true) => {
                                                     // Already downloaded

@@ -78,13 +78,11 @@ pub async fn allocate_file_space(path: &Path, size: u64) -> io::Result<()> {
 
     if let Some(disk) = best_match {
         if disk.available_space() < size {
-            return Err(io::Error::other(
-                format!(
-                    "not enough disk space. required: {} bytes, available: {} bytes",
-                    size,
-                    disk.available_space()
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "not enough disk space. required: {} bytes, available: {} bytes",
+                size,
+                disk.available_space()
+            )));
         }
     }
 

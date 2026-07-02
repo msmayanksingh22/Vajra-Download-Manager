@@ -70,16 +70,29 @@ pub async fn decrypt_handler(
     State(_state): State<Arc<AppState>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<Vec<String>>, DaemonError> {
-    if let Some(field) = multipart.next_field().await.map_err(|e| DaemonError::BadRequest(e.to_string()))? {
-        let file_bytes = field.bytes().await.map_err(|e| DaemonError::BadRequest(e.to_string()))?;
+    if let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| DaemonError::BadRequest(e.to_string()))?
+    {
+        let file_bytes = field
+            .bytes()
+            .await
+            .map_err(|e| DaemonError::BadRequest(e.to_string()))?;
         let temp_dir = std::env::temp_dir();
         let temp_file = temp_dir.join("temp.dlc");
-        std::fs::write(&temp_file, &file_bytes).map_err(|e| DaemonError::Internal(e.to_string()))?;
-        
-        let client = reqwest::Client::new();
-        let links = vajra_engine::decryption::decrypt_dlc_file(&client, "https://dcrypt.it/api/decrypt", &temp_file).await
+        std::fs::write(&temp_file, &file_bytes)
             .map_err(|e| DaemonError::Internal(e.to_string()))?;
-            
+
+        let client = reqwest::Client::new();
+        let links = vajra_engine::decryption::decrypt_dlc_file(
+            &client,
+            "https://dcrypt.it/api/decrypt",
+            &temp_file,
+        )
+        .await
+        .map_err(|e| DaemonError::Internal(e.to_string()))?;
+
         let _ = std::fs::remove_file(temp_file);
         return Ok(Json(links));
     }

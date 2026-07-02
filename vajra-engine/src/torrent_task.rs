@@ -58,7 +58,7 @@ pub async fn start_torrent(
             let default_dir = dest_dir.clone();
             let opts = SessionOptions {
                 listen_port_range: Some(6881..6890), // Allow some port flexibility
-                disable_dht_persistence: true,       // Prevent port-binding collisions across restarts
+                disable_dht_persistence: true, // Prevent port-binding collisions across restarts
                 ..Default::default()
             };
             Session::new_with_opts(default_dir, opts).await
@@ -84,7 +84,7 @@ pub async fn start_torrent(
     let add_opts = librqbit::AddTorrentOptions {
         output_folder: Some(final_dest_dir.to_string_lossy().into_owned()),
         overwrite: true, // Required to not fail immediately if target exists
-        paused: false,   // Always start unpaused since DownloadTask::start implies we want it running
+        paused: false, // Always start unpaused since DownloadTask::start implies we want it running
         ..Default::default()
     };
 
@@ -194,12 +194,22 @@ pub async fn start_torrent(
         });
 
         if is_completed {
-            let _ = session.delete(librqbit::api::TorrentIdOrHash::Hash(handle.info_hash()), false).await;
+            let _ = session
+                .delete(
+                    librqbit::api::TorrentIdOrHash::Hash(handle.info_hash()),
+                    false,
+                )
+                .await;
             break;
         }
 
         if matches!(task_state, TaskState::Failed) {
-            let _ = session.delete(librqbit::api::TorrentIdOrHash::Hash(handle.info_hash()), false).await;
+            let _ = session
+                .delete(
+                    librqbit::api::TorrentIdOrHash::Hash(handle.info_hash()),
+                    false,
+                )
+                .await;
             return Err(anyhow::anyhow!("Torrent failed"));
         }
 
