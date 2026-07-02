@@ -4,46 +4,32 @@ A high-performance, developer-first download manager. Headless-capable, API-driv
 
 ---
 
+## 🏗️ Architecture
 
-## 🏗 Architecture
+```mermaid
+flowchart TD
+    subgraph Browser["Web Browser"]
+        Ext["Vajra Chrome Extension"]
+    end
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│  Browser (Chrome / Edge)                                        │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │  Vajra Extension v1.1.0                                    │ │
-│  │  background.ts ──── intercepts downloads ────────────────► │─┐
-│  │  popup.tsx     ──── health poll every 3s ────────────────► │ │
-│  └────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-                    │ HTTP  POST /api/v1/downloads
-                    │ HTTP  GET  /health, /api/v1/stats
-                    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  vajra-daemon  (Rust / axum)  127.0.0.1:6277                    │
-│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │  Router  │  │ Handlers  │  │   SSE    │  │  DB (SQLite)  │  │
-│  └──────────┘  └───────────┘  └──────────┘  └───────────────┘  │
-│                      │                                          │
-│               ┌──────▼──────────────────────────────────┐      │
-│               │  vajra-engine                            │      │
-│               │  ┌────────────┐  ┌──────────────────┐   │      │
-│               │  │  Queue     │  │  DownloadManager │   │      │
-│               │  └────────────┘  └──────────────────┘   │      │
-│               │  ┌────────────┐  ┌──────────────────┐   │      │
-│               │  │ Multiplexer│  │  Throttle (TB)   │   │      │
-│               │  └────────────┘  └──────────────────┘   │      │
-│               │  ┌────────────┐  ┌──────────────────┐   │      │
-│               │  │ Allocator  │  │  Writer          │   │      │
-│               │  └────────────┘  └──────────────────┘   │      │
-│               └──────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────────────────┘
-                    │ Tauri IPC
-                    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  vajra-ui-tauri  (React + Tauri)  localhost:1420 (dev)          │
-│  Download list, per-chunk visualizer, settings, speed graph     │
-└─────────────────────────────────────────────────────────────────┘
+    subgraph DesktopApp["Tauri Desktop App (React)"]
+        UI["React Frontend"]
+        Tauri["Tauri Rust Backend"]
+    end
+
+    subgraph Service["Background Daemon (vajrad)"]
+        Api["Axum REST API (Port 6277)"]
+        Queue["Fair Access Priority Queue"]
+        Engine["Vajra Multi-Threaded Engine"]
+        DB[("SQLite State Store")]
+    end
+
+    Ext -->|HTTP POST /api/v1/intercept| Api
+    UI -->|Local API Queries| Api
+    Tauri -->|Launches Sidecar & Relays SSE| Api
+    Api --> Queue
+    Queue --> Engine
+    Engine --> DB
 ```
 
 ---
@@ -52,51 +38,59 @@ A high-performance, developer-first download manager. Headless-capable, API-driv
 
 | Crate | Type | Purpose |
 |-------|------|---------|
-| `vajra-engine` | lib | Core download engine — HTTP/2, multi-segment, thread stealing, resume, retry, throttle |
-| `vajra-daemon` | bin (`vajrad`) | REST API server + job queue + SQLite |
-| `vajra-protocol` | lib | Shared request/response types and DaemonConfig |
-| `vajra-cli` | bin (`vajra`) | Terminal client |
-| `vajra-ui-tauri` | app | React + Tauri desktop GUI |
-| `vajra-extension` | ext | React + TS Chrome MV3 extension (pure HTTP connection) |
+| `vajra-engine` | Library | Core download engine (HTTP/2, multi-segment, thread stealing, resume, retry, throttle). |
+| `vajra-daemon` | Binary | REST API server, background job queue, WebDAV server, and SQLite storage (`vajrad`). |
+| `vajra-protocol` | Library | Shared request/response types and `DaemonConfig` schemas. |
+| `vajra-cli` | Binary | Clap-based terminal client (`vajra`). |
+| `vajra-ui-tauri` | App | React + Tauri desktop GUI. |
+| `vajra-extension` | Extension | Chrome/Edge Manifest V3 browser extension. |
 
-> Note: `vajra-native-host` was removed in v0.4.1. The extension now connects purely via HTTP polling and auto-starts the app via the `vajra://` custom URL protocol.
+> **Note:** The legacy `vajra-native-host` was removed in v0.4.1. The extension now connects purely via HTTP polling and auto-starts the app via the `vajra://` custom URL protocol.
 
 ---
 
 ## 🚀 Quick Start
 
-### First-time setup (build once)
+### First-Time Setup (Build All)
+
+Run the included build script to automatically configure and build the entire workspace:
 
 ```bat
 build-all.bat
 ```
 
-This single script: finds MSVC, builds all Rust crates, installs npm deps, builds the Tauri UI, and verifies everything.
+This single script:
+1. Loads the MSVC environment on Windows.
+2. Builds all Rust crates (`vajrad`, `vajra` CLI, Tauri backend).
+3. Installs node modules and compiles the React frontends.
+4. Packages the final installation artifacts.
 
 **Prerequisites:**
 - [Rust](https://rustup.rs) (`rustup install stable`)
 - [Node.js 18+](https://nodejs.org)
-- [VS Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with "Desktop development with C++"
+- [VS Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with "Desktop development with C++" workload enabled.
 
 ---
 
 ### Running Vajra
 
+Start the application by running:
+
 ```bat
 vajra.bat
 ```
 
-That's it. The UI starts and **automatically launches the daemon** in the background — no separate terminal needed. Close the window → app hides to system tray. Right-click tray → Quit to fully exit.
+The UI will boot up and **automatically launch the daemon** in the background — no separate terminal needed. Closing the UI window hides the app to the system tray. Right-click the tray icon and select **Quit** to exit completely.
 
-> Running `vajra.bat` also registers the `vajra://` URL protocol handler in the Windows Registry so the browser extension can auto-start it.
+> Running `vajra.bat` also registers the custom `vajra://` URL protocol handler in the Windows Registry, enabling the browser extension to auto-start the UI and daemon on demand.
 
 ### Browser Extension Setup
 
-1. Open `chrome://extensions` (or `edge://extensions`)
-2. Enable **Developer Mode**
-3. Click **Load unpacked**
-4. Select the `vajra-extension/` folder (or build it via `npm run build` inside `vajra-extension` and select `dist/`)
-5. Open the Vajra extension popup. If Vajra isn't running, click **Launch Vajra**. It will auto-connect via `vajra://start`.
+1. Open `chrome://extensions` (or `edge://extensions` for Microsoft Edge).
+2. Enable **Developer Mode** in the top right.
+3. Click **Load unpacked** in the top left.
+4. Select the `vajra-extension/` directory (or build it first via `npm run build` inside `vajra-extension` and load `dist/`).
+5. Open the Vajra extension popup. If Vajra isn't running, click **Launch Vajra** to auto-start the application.
 
 ---
 
@@ -104,16 +98,17 @@ That's it. The UI starts and **automatically launches the daemon** in the backgr
 
 ### Multi-Segment Download Flow
 
-1. **HEAD request** → get `Content-Length`, `Accept-Ranges`, `ETag`
-2. **Auto-Categorize** → route to Videos, Music, Docs etc. based on file extension
-3. **Allocate file on disk** (sparse file)
-   - Windows: `SetEndOfFile` + `SetFileValidData`
-4. **Split into N byte-range chunks** (MIN_CHUNK_SIZE = 1 MiB)
-5. **Concurrent HTTP GET** — one tokio task per chunk
-6. **Dynamic Thread Stealing** — idle threads split the slowest active chunk so no thread ever idles
-7. **Bandwidth Throttling** — token bucket limits total and per-download speeds
-8. **Memory-Mapped Disk Writer** — chunks written directly to virtual memory-mapped positions via `MmapHandle`, falling back to standard sequential positional disk writing on failure.
-9. **State Persistence** — transactional SQLite database state tracking (`download_segments`) for highly resilient resumes.
+1. **HEAD Probe**: Queries the URL to fetch `Content-Length`, `Accept-Ranges`, and `ETag`. Falls back gracefully to `GET` with a single byte range if HEAD is blocked.
+2. **Auto-Categorize**: Scans file extensions and routes the download to designated folders (e.g., Videos, Music, Documents).
+3. **OS-Level Space Allocation**: Pre-allocates contiguous space on the disk to prevent mid-download fragmentation or disk-full panics:
+   - **Windows**: Uses `SetEndOfFile` + `SetFileValidData` (bypasses zero-filling for instant gigabyte allocation).
+   - **Linux**: Uses `fallocate(2)`.
+   - **macOS**: Uses `fcntl(F_PREALLOCATE)` + `ftruncate`.
+4. **Byte-Range Multiplexing**: Splits the file size into concurrent segment downloads using HTTP `Range` requests (minimum chunk size of 1 MiB).
+5. **Dynamic Thread Stealing**: When a worker finishes its chunk, it steals half of the largest remaining active segment from the slowest thread. No worker goes idle until the file is fully downloaded.
+6. **Token-Bucket Throttling**: Limits connection speeds globally or on a per-download basis.
+7. **Memory-Mapped Disk Writer**: Writes stream dataframes directly to mapped virtual memory-mapped positions via `MmapHandle`, falling back to standard sequential positional disk writing on failure.
+8. **Transactional State Persistence**: Stores segment progress transactional metadata in a SQLite database (`download_segments`) for highly resilient resumes.
 
 ---
 
@@ -123,15 +118,15 @@ Base URL: `http://127.0.0.1:6277/api/v1`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/health` | Daemon liveness check |
-| `GET` | `/downloads` | List all downloads |
+| `GET` | `/health` | Daemon health check |
+| `GET` | `/downloads` | List all download records |
 | `POST` | `/downloads` | Add new download (auto-categorized by default) |
-| `GET` | `/downloads/:id` | Get single download |
-| `PATCH` | `/downloads/:id` | Pause / Resume / Cancel |
-| `DELETE`| `/downloads/:id` | Remove download record |
+| `GET` | `/downloads/:id` | Get details of a single download |
+| `PATCH` | `/downloads/:id` | Pause / Resume / Cancel download task |
+| `DELETE`| `/downloads/:id` | Remove download from history (optionally clean files) |
 | `GET` | `/stats` | Global throughput and active queue stats |
 | `GET` | `/config` | Read current DaemonConfig |
-| `PATCH` | `/config` | Update category rules, limits, proxy, etc. |
+| `PATCH` | `/config` | Update category rules, speed limits, proxy, etc. |
 
 ### SSE (Server-Sent Events)
 
@@ -152,7 +147,7 @@ You can configure proxy settings, speed limits, max concurrent downloads, and po
 
 ---
 
-## 🛠 Troubleshooting
+## 🛠️ Troubleshooting
 
 ### `LNK1104: cannot open file 'msvcrt.lib'` during build
 If you have a non-standard MSVC installation on Windows, the build may fail looking for the CRT libraries.

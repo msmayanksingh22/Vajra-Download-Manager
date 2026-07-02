@@ -51,7 +51,7 @@ npm run format:check
 At this point, you should switch back to your master branch and make sure it's up to date with Vajra's master branch:
 
 ```bash
-git remote add upstream https://github.com/project-vajra/vajra.git
+git remote add upstream https://github.com/msmayanksingh22/Vajra-Download-Manager.git
 git checkout main
 git pull upstream main
 ```
