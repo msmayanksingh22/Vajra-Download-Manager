@@ -28,7 +28,6 @@
 //! tokio    = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 //! ```
 
-#[allow(unsafe_code)]
 use std::{io, path::Path, sync::Arc};
 
 use bytes::Bytes;

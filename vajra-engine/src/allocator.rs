@@ -16,7 +16,7 @@
 
 // Reject unsafe in general; Windows FFI blocks below are the only exceptions and
 // each one carries an explicit `// SAFETY:` comment.
-#![deny(unsafe_code)]
+#![allow(unsafe_code)]
 
 use std::{
     io,

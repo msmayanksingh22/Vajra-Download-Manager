@@ -51,7 +51,7 @@ pub fn load_or_generate_key() -> Option<[u8; 32]> {
             tracing::warn!("Failed to write vault key: {}", e);
             return None;
         }
-        if let Ok(mut perms) = std::fs::metadata(&key_path).and_then(|m| {
+        if let Ok(perms) = std::fs::metadata(&key_path).and_then(|m| {
             let p = m.permissions();
             std::fs::set_permissions(&key_path, p).map(|_| m)
         }) {
