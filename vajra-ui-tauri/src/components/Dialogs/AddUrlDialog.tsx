@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import {
   X,
-  Lock,
   Link as LinkIcon,
   Folder,
   HardDriveDownload,
@@ -10,13 +8,10 @@ import {
   Activity,
   Box,
   Download,
-  FileCode2,
 } from 'lucide-react';
 import { api, fmtBytes } from '../../api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useUiStore } from '../../stores/uiStore';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { cn } from '../../utils';
 import { useDialogEscape } from '../../hooks/useDialogEscape';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 

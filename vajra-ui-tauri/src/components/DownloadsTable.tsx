@@ -6,9 +6,6 @@ import {
   FileAudio,
   FileVideo,
   Settings as SettingsIcon,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  Clock,
-  CheckCircle2,
   AlertCircle,
   Pause,
   Play,

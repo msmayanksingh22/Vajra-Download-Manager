@@ -15,9 +15,7 @@ import {
   Activity,
   Server,
   AlertCircle,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   Check,
-  Save,
   Trash2,
   FolderOpen,
 } from 'lucide-react';

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import {
   X,
   FileText,
@@ -8,12 +7,9 @@ import {
   Activity,
   Calendar,
   Clock,
-  FolderDown,
   Bolt,
   FileBadge,
-  Hash,
   Save,
-  CircleCheck,
   Download,
   CheckCircle2,
 } from 'lucide-react';

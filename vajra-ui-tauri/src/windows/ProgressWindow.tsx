@@ -11,7 +11,6 @@ import {
   Pause,
   Play,
   Square,
-  Settings2,
   AlertCircle,
   RefreshCw,
   Gauge,
@@ -19,8 +18,6 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { cn } from '../utils';
 import {
   isPermissionGranted,
   requestPermission,

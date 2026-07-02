@@ -67,26 +67,6 @@ export default function SchedulerDialog({ downloads, onClose }: any) {
       {label}
     </label>
   );
-  const Row = ({ label, sub, right }: { label: string; sub: string; right: React.ReactNode }) => (
-    <div
-      className="card-subtle flex items-center justify-between"
-      style={{ padding: 'var(--sp-3) var(--sp-4)' }}
-    >
-      <div>
-        <div
-          style={{ fontWeight: 600, fontSize: 'var(--text-sm-size)', color: 'var(--color-text-1)' }}
-        >
-          {label}
-        </div>
-        <div
-          style={{ fontSize: 'var(--text-xs-size)', color: 'var(--color-text-3)', marginTop: 2 }}
-        >
-          {sub}
-        </div>
-      </div>
-      {right}
-    </div>
-  );
 
   return (
     <div className="dialog-overlay" onClick={onClose}>

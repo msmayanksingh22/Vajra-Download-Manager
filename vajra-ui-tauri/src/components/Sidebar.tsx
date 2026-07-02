@@ -4,7 +4,6 @@ import {
   Timer,
   CircleCheck,
   Braces,
-  FileText,
   GitBranch,
   SlidersHorizontal,
   Eraser,

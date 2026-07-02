@@ -3,7 +3,6 @@ import {
   X,
   Globe,
   Link,
-  FileDown,
   FileText,
   FileImage,
   FileAudio,
@@ -13,8 +12,6 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { api } from '../../api';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { cn } from '../../utils';
 import { useDialogEscape } from '../../hooks/useDialogEscape';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
