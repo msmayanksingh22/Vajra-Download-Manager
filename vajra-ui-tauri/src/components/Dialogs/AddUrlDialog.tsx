@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { X, Lock, Link as LinkIcon, Folder, HardDriveDownload, Search, Activity, Box, Download, FileCode2 } from 'lucide-react';
 import { api, fmtBytes } from '../../api';
@@ -80,9 +80,9 @@ export default function AddUrlDialog({
   const parseNaturalLanguageDownload = (input: string): { url: string; extensions: string } | null => {
     const match = input.match(/(?:download|grab|get|spider)\s+all\s+(?:of\s+)?(?:the\s+)?([\w\s,.-]+?)\s+from\s+(https?:\/\/[^\s]+)/i);
     if (match) {
-      let rawExts = match[1].toLowerCase().replace(/\band\b/g, '').replace(/[\s,]+/g, ' ').trim();
-      let exts = rawExts.split(' ').map(ext => {
-        let e = ext.trim();
+      const rawExts = match[1].toLowerCase().replace(/\band\b/g, '').replace(/[\s,]+/g, ' ').trim();
+      const exts = rawExts.split(' ').map(ext => {
+        const e = ext.trim();
         if (e === 'images' || e === 'image') return 'png, jpg, jpeg, gif, webp';
         if (e === 'videos' || e === 'video') return 'mp4, mkv, avi, mov';
         if (e === 'documents' || e === 'document') return 'pdf, docx, doc, xlsx, txt';

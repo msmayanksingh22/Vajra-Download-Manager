@@ -30,7 +30,9 @@ export default function DownloadCompleteWindow({ downloadId }: any) {
     try {
       const cached = localStorage.getItem(`vajra_complete_init_${downloadId}`);
       if (cached) return JSON.parse(cached);
-    } catch (e) {}
+    } catch (e) {
+      // ignore
+    }
     return null;
   });
   const [copiedField, setCopiedField] = useState<any>(null);
