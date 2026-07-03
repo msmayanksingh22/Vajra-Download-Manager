@@ -113,6 +113,7 @@ pub async fn build(state: Arc<AppState>) -> Router {
                         || o.starts_with("http://127.0.0.1")
                         || o.starts_with("tauri://")
                         || o.starts_with("https://tauri.localhost")
+                        || o.starts_with("http://tauri.localhost")
                         || o.starts_with("chrome-extension://")
                         || o.starts_with("moz-extension://")
                 } else {
