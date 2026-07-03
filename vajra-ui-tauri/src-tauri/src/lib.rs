@@ -159,7 +159,21 @@ pub fn run() {
                 log_to_file("tauri-shell.log", "Launching vajrad sidecar...");
                 
                 let current_exe = std::env::current_exe().unwrap_or_default();
-                let sidecar_path = current_exe.parent().unwrap_or(std::path::Path::new("")).join("vajrad.exe");
+                let parent_dir = current_exe.parent().unwrap_or(std::path::Path::new(""));
+                let mut sidecar_path = parent_dir.join("vajrad.exe");
+                
+                if !sidecar_path.exists() {
+                    if let Ok(entries) = std::fs::read_dir(parent_dir) {
+                        for entry in entries.flatten() {
+                            let filename = entry.file_name().to_string_lossy().to_string();
+                            if filename.starts_with("vajrad") && filename.ends_with(".exe") {
+                                sidecar_path = entry.path();
+                                break;
+                            }
+                        }
+                    }
+                }
+                
                 log_to_file("tauri-shell.log", &format!("Trying to launch {:?}", sidecar_path));
                 
                 let mut cmd = std::process::Command::new(&sidecar_path);

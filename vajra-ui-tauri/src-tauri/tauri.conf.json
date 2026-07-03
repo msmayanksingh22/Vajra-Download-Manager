@@ -4,9 +4,9 @@
   "version": "0.2.0",
   "identifier": "com.vajra.manager",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "node scripts/build-sidecar.mjs && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "echo \"NOTE: Build sidecar skipped - use dev.bat to build and copy the daemon binary\" && npm run build",
+    "beforeBuildCommand": "node scripts/build-sidecar.mjs && npm run build",
     "frontendDist": "../dist"
   },
   "app": {

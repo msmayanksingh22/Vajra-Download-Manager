@@ -109,3 +109,4 @@ Thumbs.db
 # Tauri mobile build artifacts
 gen/android/
 gen/ios/
+*.bat

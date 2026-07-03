@@ -935,10 +935,13 @@ export default function OptionsDialog({ onClose }: { onClose: () => void }) {
 
                         <div className="flex items-center justify-between">
                           <div className="pr-4">
-                            <div className="font-semibold text-sm text-1">Audio Alerts</div>
-                            <div className="text-xs text-3 mt-1">
-                              Play sounds on completion or error.
+                            <div className="font-semibold text-sm text-[var(--color-text-1)] flex items-center gap-2">
+                              Audio Alerts
+                              <span className="text-[9px] font-bold uppercase tracking-wider bg-[var(--color-warning-dim)] text-[var(--color-warning)] px-1.5 py-0.5 rounded-sm whitespace-nowrap">
+                                Under Development
+                              </span>
                             </div>
+                            <div className="text-xs text-[var(--color-text-3)] mt-1">Play sounds on completion or error.</div>
                           </div>
                           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                           <Toggle
@@ -1568,11 +1571,13 @@ export default function OptionsDialog({ onClose }: { onClose: () => void }) {
                 {activeTab === 'Dial-up' && (
                   <div className="flex flex-col gap-8">
                     <section>
-                      <h3 className="text-sm font-bold text-1 mb-4 flex items-center gap-2">
-                        <Phone size={16} style={{ color: 'var(--color-brand)' }} /> Dial-up & VPN
-                        Integrations
+                      <h3 className="text-sm font-bold text-[var(--color-text-1)] mb-4 flex items-center gap-2">
+                        <Phone size={16} style={{ color: "var(--color-brand)" }}/> Dial-up / VPN
+                        <span className="text-[10px] font-bold uppercase tracking-wider bg-[var(--color-warning-dim)] text-[var(--color-warning)] px-2 py-0.5 rounded">
+                          Under Development
+                        </span>
                       </h3>
-                      <div className="bg-surface border border-muted rounded-2xl p-5 shadow-sm flex flex-col gap-4">
+                      <div className="bg-[var(--color-surface)] border border-border/40 rounded-2xl p-5 shadow-sm flex flex-col gap-6 opacity-60 pointer-events-none">
                         <div className="flex flex-col gap-2 mb-2">
                           <label className="text-xs font-semibold text-2 uppercase tracking-wider">
                             Windows Connection Profile

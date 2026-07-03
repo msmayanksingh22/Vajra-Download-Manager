@@ -14,6 +14,9 @@ export default function SchedulerDialog({ downloads, onClose }: any) {
   const [fapEnabled, setFapEnabled] = useState(false);
   const [fapQuotaMb, setFapQuotaMb] = useState(150);
   const [fapWindowHours, setFapWindowHours] = useState(4);
+  const [schedulerEnabled, setSchedulerEnabled] = useState(false);
+  const [schedulerStartTime, setSchedulerStartTime] = useState('02:00');
+  const [schedulerStopTime, setSchedulerStopTime] = useState('06:00');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [config, setConfig] = useState<any>(null);
 
@@ -23,6 +26,9 @@ export default function SchedulerDialog({ downloads, onClose }: any) {
       setFapEnabled(cfg.fap_enabled ?? false);
       setFapQuotaMb(cfg.fap_quota_mb ?? 150);
       setFapWindowHours(cfg.fap_window_hours ?? 4);
+      setSchedulerEnabled(cfg.scheduler_enabled ?? false);
+      setSchedulerStartTime(cfg.scheduler_start_time || '02:00');
+      setSchedulerStopTime(cfg.scheduler_stop_time || '06:00');
     });
   }, []);
 
@@ -38,6 +44,9 @@ export default function SchedulerDialog({ downloads, onClose }: any) {
         fap_enabled: fapEnabled,
         fap_quota_mb: fapQuotaMb,
         fap_window_hours: fapWindowHours,
+        scheduler_enabled: schedulerEnabled,
+        scheduler_start_time: schedulerStartTime,
+        scheduler_stop_time: schedulerStopTime,
       });
     onClose();
   };
@@ -195,7 +204,54 @@ export default function SchedulerDialog({ downloads, onClose }: any) {
                 )}
               </div>
 
-              {/* On Completion section removed — daemon does not support exit/shutdown triggers */}
+              {/* Time Scheduling */}
+              <div className="card-subtle mt-4" style={{ padding: 'var(--sp-3) var(--sp-4)' }}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 'var(--text-sm-size)',
+                        color: 'var(--color-text-1)',
+                      }}
+                    >
+                      Time Scheduling
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 'var(--text-xs-size)',
+                        color: 'var(--color-text-3)',
+                        marginTop: 2,
+                      }}
+                    >
+                      Automatically start and stop all downloads
+                    </div>
+                  </div>
+                  <Chk checked={schedulerEnabled} onChange={setSchedulerEnabled} label="" />
+                </div>
+                {schedulerEnabled && (
+                  <div className="flex items-center gap-3 mt-4 animate-fade-in">
+                    <div className="flex flex-col gap-1 flex-1">
+                      <label className="text-xs font-semibold text-2 uppercase">Start Time</label>
+                      <input
+                        type="time"
+                        className="input-field"
+                        value={schedulerStartTime}
+                        onChange={(e) => setSchedulerStartTime(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1 flex-1">
+                      <label className="text-xs font-semibold text-2 uppercase">Stop Time</label>
+                      <input
+                        type="time"
+                        className="input-field"
+                        value={schedulerStopTime}
+                        onChange={(e) => setSchedulerStopTime(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
 

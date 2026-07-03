@@ -28,8 +28,8 @@ const extension = target?.includes('windows') || process.platform === 'win32' ? 
 const targetDir = target ? `target/${target}/release` : `target/release`;
 const sourceBin = join(process.cwd(), '..', targetDir, `vajrad${extension}`);
 
-// Destination directory is src-tauri/bin
-const destDir = join(process.cwd(), 'src-tauri', 'bin');
+// Destination directory is src-tauri
+const destDir = join(process.cwd(), 'src-tauri');
 if (!existsSync(destDir)) {
   mkdirSync(destDir, { recursive: true });
 }
