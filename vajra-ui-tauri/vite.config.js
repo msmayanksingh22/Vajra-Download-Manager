@@ -34,9 +34,9 @@ export default defineConfig(async () => ({
         manualChunks: {
           react: ['react', 'react-dom'],
           tauri: ['@tauri-apps/api', '@tauri-apps/plugin-shell', '@tauri-apps/plugin-dialog'],
-          lucide: ['lucide-react']
-        }
-      }
-    }
-  }
+          lucide: ['lucide-react'],
+        },
+      },
+    },
+  },
 }));
