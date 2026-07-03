@@ -30,7 +30,7 @@
   "bundle": {
     "active": true,
     "targets": ["msi", "deb", "appimage", "dmg"],
-    "externalBin": ["bin/vajrad"],
+    "externalBin": ["vajrad"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

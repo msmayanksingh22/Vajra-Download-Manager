@@ -64,8 +64,7 @@ echo.
 
 :: ── Copy sidecar daemon ──────────────────────────────────────────────────────
 echo Copying sidecar daemon for Tauri packaging...
-if not exist "vajra-ui-tauri\src-tauri\bin" mkdir "vajra-ui-tauri\src-tauri\bin"
-copy /Y "target\!BUILD_TYPE!\vajrad.exe" "vajra-ui-tauri\src-tauri\bin\vajrad-x86_64-pc-windows-msvc.exe" >nul 2>&1
+copy /Y "target\!BUILD_TYPE!\vajrad.exe" "vajra-ui-tauri\src-tauri\vajrad-x86_64-pc-windows-msvc.exe" >nul 2>&1
 if errorlevel 1 ( echo [FAIL] Copying sidecar failed. & pause & exit /b 1 )
 
 :: ── Install npm deps if needed ───────────────────────────────────────────────
