@@ -159,7 +159,7 @@ pub fn run() {
             } else {
                 eprintln!("[vajra] launching vajrad sidecar…");
                 log_to_file("tauri-shell.log", "Launching vajrad sidecar...");
-                let sidecar_command = match app.handle().shell().sidecar("vajrad") {
+                let sidecar_command = match app.handle().shell().sidecar("bin/vajrad") {
                     Ok(cmd) => {
                         log_to_file("tauri-shell.log", "Successfully resolved sidecar command");
                         Some(cmd)
