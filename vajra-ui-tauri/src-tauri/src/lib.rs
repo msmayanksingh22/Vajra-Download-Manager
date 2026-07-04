@@ -158,10 +158,10 @@ pub fn run() {
             } else {
                 eprintln!("[vajra] launching vajrad sidecar…");
                 log_to_file("tauri-shell.log", "Launching vajrad sidecar using Tauri shell API...");
-                
+
                 use tauri_plugin_shell::ShellExt;
                 let shell = app.handle().shell();
-                
+
                 let child = match shell.sidecar("vajrad") {
                     Ok(cmd) => {
                         // The sidecar command handles hiding the console window automatically on Windows

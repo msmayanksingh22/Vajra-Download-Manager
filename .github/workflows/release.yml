@@ -4,6 +4,9 @@ on:
     tags:
       - 'v*'
 
+env:
+  RUSTFLAGS: "--cfg reqwest_unstable"
+
 jobs:
   build:
     permissions:
