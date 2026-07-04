@@ -36,6 +36,18 @@ daemon.log
 config_out.txt
 downloads/
 
+# Clippy/lint output artifacts
+clipy_err.txt
+clipy_out.txt
+clipy_output.txt
+clipy*.txt
+
+# One-off dev scripts at root
+generate_icons.mjs
+
+# Internal AI planning docs
+docs/
+
 # Test artifacts
 test_dir/
 test_dir2/

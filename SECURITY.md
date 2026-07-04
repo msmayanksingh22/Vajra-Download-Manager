@@ -2,17 +2,38 @@
 
 ## Supported Versions
 
-We only provide security updates for the latest major version.
+We provide security updates for the following versions:
 
 | Version | Supported          |
-| ------- | ------------------ |
-| 1.x.x   | :white_check_mark: |
-| 0.x.x   | :x:                |
+|:--------|:-------------------|
+| 0.2.x   | ✅ Yes (current public beta) |
+| < 0.2   | ❌ No              |
+
+> **Note:** Vajra is currently in public beta. Once a stable `1.0` is released, only the latest major version will receive security updates.
 
 ## Reporting a Vulnerability
 
-Please do not report security vulnerabilities through public GitHub issues.
+**Please do not report security vulnerabilities through public GitHub issues.** This could expose other users to risk before a fix is available.
 
-Instead, please report them to the maintainers privately. You can contact us via email at msmayanksingh22@gmail.com.
+Instead, please **report vulnerabilities privately** via one of these channels:
 
-We will acknowledge receipt of your vulnerability report and send you regular updates about our progress. If your report is accepted, we will coordinate a public disclosure with you once the fix has been released.
+1. **Email:** Send details to `msmayanksingh22@gmail.com` with the subject: `[SECURITY] Vajra Vulnerability Report`
+2. **GitHub Private Reporting:** Use GitHub's [Private Vulnerability Reporting](https://github.com/msmayanksingh22/Vajra-Download-Manager/security/advisories/new) feature.
+
+### What to Include
+
+Please provide as much information as possible:
+
+- **Description** of the vulnerability
+- **Steps to reproduce** — the more specific, the better
+- **Potential impact** — what an attacker could achieve
+- **Suggested fix** (if you have one)
+
+### What to Expect
+
+- **Acknowledgement** within **48 hours** of your report.
+- **Regular updates** on our progress (at least once a week).
+- **Credit** in the security advisory and release notes when the fix is published (unless you prefer to remain anonymous).
+- We aim to release a fix within **14 days** for critical issues.
+
+We truly appreciate responsible disclosure and the effort it takes to report vulnerabilities. Thank you for helping keep Vajra users safe.
