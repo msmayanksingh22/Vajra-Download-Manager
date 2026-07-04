@@ -8,9 +8,17 @@
     <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/actions/workflows/build.yml">
       <img src="https://img.shields.io/github/actions/workflow/status/msmayanksingh22/Vajra-Download-Manager/build.yml?branch=main&style=for-the-badge&logo=github&color=31c754" alt="Build Status" />
     </a>
+    <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/releases/latest">
+      <img src="https://img.shields.io/github/v/release/msmayanksingh22/Vajra-Download-Manager?include_prereleases&style=for-the-badge&logo=github&color=blue" alt="Latest Release" />
+    </a>
+    <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/releases">
+      <img src="https://img.shields.io/github/downloads/msmayanksingh22/Vajra-Download-Manager/total?style=for-the-badge&color=orange" alt="Downloads" />
+    </a>
     <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/blob/main/LICENSE">
       <img src="https://img.shields.io/github/license/msmayanksingh22/Vajra-Download-Manager?style=for-the-badge&color=238636" alt="License" />
     </a>
+  </p>
+  <p>
     <a href="https://rustup.rs">
       <img src="https://img.shields.io/badge/rust-1.75%2B-orange?style=for-the-badge&logo=rust" alt="Rust Version" />
     </a>
@@ -98,7 +106,7 @@ Vajra is organized as a modular Rust Cargo workspace:
 ### Prerequisites
 
 - [Rust stable](https://rustup.rs) (1.75+)
-- [Node.js 18+](https://nodejs.org)
+- [Node.js 20+](https://nodejs.org)
 - [VS Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) (Windows only, with "Desktop development with C++")
 
 ### Build & Launch
@@ -109,17 +117,17 @@ Run the root build script to compile the backend crates and frontend targets aut
 build-all.bat
 ```
 
-To launch the desktop application:
+To launch the desktop application on Windows, you can also use the development script:
 
 ```bat
-vajra.bat
+dev.bat
 ```
 
 > **Note:** The desktop app starts the background daemon automatically. If you close the main window, the application will minimize to the system tray.
 
 ### Browser Extension Setup
 
-1. Open `chrome://extensions` in Chrome/Edge.
+1. Open `chrome://extensions` or `edge://extensions` in your browser.
 2. Enable **Developer Mode**.
 3. Click **Load unpacked** and select the `vajra-extension/` directory. *(For production, load the `dist/` directory after running `npm run build` inside the extension folder).*
 4. Click the extension icon and select **Launch Vajra** if the daemon is offline.
@@ -136,6 +144,16 @@ Vajra's headless capabilities are powered by a REST API accessible at `http://12
 - `PATCH /downloads/:id` — Control task state (pause/resume/cancel)
 - `GET /stats` — Live global queue throughput and speed statistics
 - `GET /events` — Real-time progress updates via Server-Sent Events (SSE)
+
+---
+
+## 💻 Cross-Platform Support
+
+Vajra supports the following operating systems:
+
+- **Windows 10 / 11** ✅ (Native MSI / NSIS Installers)
+- **macOS (Intel & Apple Silicon)** ✅ (DMG / App)
+- **Linux (Debian, Ubuntu, Arch, etc.)** ✅ (DEB / AppImage)
 
 ---
 

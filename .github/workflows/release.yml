@@ -107,7 +107,7 @@ jobs:
             - **Linux**: `vajra_*_amd64.deb` or `.AppImage`
 
             See [CHANGELOG](https://github.com/msmayanksingh22/Vajra-Download-Manager/blob/main/CHANGELOG.md) for what's new.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}
           projectPath: "vajra-ui-tauri"

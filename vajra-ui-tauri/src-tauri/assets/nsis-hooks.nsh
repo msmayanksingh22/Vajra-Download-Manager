@@ -4,30 +4,36 @@
 ; These macros are called by the Tauri-generated NSIS installer automatically.
 
 !macro customInstall
-  ; Add install dir to system PATH so 'vajra' works from any terminal
-  ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path"
+  ; Add install dir to HKCU Environment PATH so 'vajra' works without admin
+  ReadRegStr $0 HKCU "Environment" "Path"
   Push $0
   Push "$INSTDIR"
   Call StrContains
   Pop $1
   StrCmp $1 "" 0 path_already_set
     StrCpy $0 "$0;$INSTDIR"
-    WriteRegStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" $0
+    WriteRegExpandStr HKCU "Environment" "Path" $0
   path_already_set:
 
-  ; Create vdm.bat alias (vajra-download-manager shorthand)
+  ; Create vdm.bat alias
   FileOpen $1 "$INSTDIR\vdm.bat" w
   FileWrite $1 "@echo off$\r$\n"
-  FileWrite $1 "vajra.exe %*$\r$\n"
+  FileWrite $1 '"$INSTDIR\vajra.exe" %*$\r$\n'
   FileClose $1
 
-  ; Broadcast WM_SETTINGCHANGE so new PATH is live without reboot
-  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+  ; Create vajra.bat alias
+  FileOpen $1 "$INSTDIR\vajra.bat" w
+  FileWrite $1 "@echo off$\r$\n"
+  FileWrite $1 '"$INSTDIR\vajra.exe" %*$\r$\n'
+  FileClose $1
+
+  ; Broadcast WM_SETTINGCHANGE so new PATH is live
+  System::Call 'user32::SendMessageTimeout(i 0xffff, i 0x001A, i 0, t "Environment", i 2, i 5000, *i .r0)'
 
   ; Create Native Messaging Host script
   FileOpen $1 "$INSTDIR\native-host.bat" w
   FileWrite $1 "@echo off$\r$\n"
-  FileWrite $1 "start $\"$\" $\"$INSTDIR\vajra-ui-tauri.exe$\" --minimized$\r$\n"
+  FileWrite $1 'start "" "$INSTDIR\vajra-ui-tauri.exe" --minimized$\r$\n'
   FileWrite $1 "exit 0$\r$\n"
   FileClose $1
 
@@ -41,7 +47,7 @@
   FileWrite $1 '{$\r$\n'
   FileWrite $1 '  "name": "com.vajra.manager",$\r$\n'
   FileWrite $1 '  "description": "Vajra Native Messaging Host",$\r$\n'
-  FileWrite $1 '  "path": "$2\\native-host.bat",$\r$\n'
+  FileWrite $1 '  "path": "$2\\\\native-host.bat",$\r$\n'
   FileWrite $1 '  "type": "stdio",$\r$\n'
   FileWrite $1 '  "allowed_origins": [$\r$\n'
   FileWrite $1 '    "chrome-extension://mfdepghakanbpamaakojoaogglepehfh/"$\r$\n'
@@ -55,8 +61,9 @@
 !macroend
 
 !macro customUnInstall
-  ; Remove the vdm alias
+  ; Remove the aliases
   Delete "$INSTDIR\vdm.bat"
+  Delete "$INSTDIR\vajra.bat"
   Delete "$INSTDIR\native-host.bat"
   Delete "$INSTDIR\com.vajra.manager.json"
 
@@ -103,7 +110,7 @@ Function EscapeBackslashes
     StrCpy $R2 $R0 1
     StrCpy $R0 $R0 "" 1
     StrCmp $R2 "\" 0 +2
-    StrCpy $R2 "\\\\" ; Note: NSIS parses double backslash, so "\\\\" becomes \\
+    StrCpy $R2 "\\\\"
     StrCpy $R1 "$R1$R2"
     Goto loop
   done:
@@ -112,4 +119,3 @@ Function EscapeBackslashes
     Pop $R1
     Exch $R0
 FunctionEnd
-

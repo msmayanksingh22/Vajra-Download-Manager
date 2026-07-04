@@ -1,0 +1,116 @@
+name: "CI"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Rust: check, clippy, test
+  # ──────────────────────────────────────────────
+  rust-quality:
+    name: "Rust Quality (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "vajra-ci-${{ matrix.os }}"
+
+      - name: Create dummy Linux sidecar (Ubuntu — skip cross compilation)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          mkdir -p vajra-ui-tauri/src-tauri/bin
+          touch vajra-ui-tauri/src-tauri/bin/vajrad-x86_64-unknown-linux-gnu
+          touch vajra-ui-tauri/src-tauri/bin/vajra-x86_64-unknown-linux-gnu
+          chmod +x vajra-ui-tauri/src-tauri/bin/*
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --lib
+
+  # ──────────────────────────────────────────────
+  # Frontend: type-check + build
+  # ──────────────────────────────────────────────
+  frontend:
+    name: "Frontend (Node 20)"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: vajra-ui-tauri/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: vajra-ui-tauri
+
+      - name: Type-check
+        run: npx tsc --noEmit
+        working-directory: vajra-ui-tauri
+
+      - name: Lint
+        run: npm run lint
+        working-directory: vajra-ui-tauri
+
+      - name: Build (Vite)
+        run: npm run build
+        working-directory: vajra-ui-tauri
+
+  # ──────────────────────────────────────────────
+  # Extension: type-check + build
+  # ──────────────────────────────────────────────
+  extension:
+    name: "Browser Extension"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: vajra-extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: vajra-extension
+
+      - name: Build extension
+        run: npm run build
+        working-directory: vajra-extension
