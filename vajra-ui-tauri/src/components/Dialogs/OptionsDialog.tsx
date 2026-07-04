@@ -483,8 +483,9 @@ export default function OptionsDialog({ onClose }: { onClose: () => void }) {
                   >
                     Settings cannot be loaded because the backend is not running.
                     <br />
-                    Start <strong style={{ color: 'var(--color-text-2)' }}>dev.bat</strong> and wait
-                    for the daemon to start, then retry.
+                    Try closing and reopening the app. If the issue persists, check that
+                    {' '}<strong style={{ color: 'var(--color-text-2)' }}>Vajra</strong> is not
+                    blocked by your antivirus or firewall.
                   </div>
                   <div
                     style={{

@@ -24,13 +24,22 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:*; img-src 'self' data: asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:*; img-src 'self' data: asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "deb", "appimage", "dmg"],
-    "externalBin": ["vajrad"],
+    "targets": ["msi", "nsis", "deb", "appimage", "dmg"],
+    "license": "assets/license.txt",
+    "windows": {
+      "nsis": {
+        "headerImage": "assets/header.bmp",
+        "sidebarImage": "assets/sidebar.bmp",
+        "installMode": "perMachine",
+        "installerHooks": "assets/nsis-hooks.nsh"
+      }
+    },
+    "externalBin": ["bin/vajrad", "bin/vajra"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

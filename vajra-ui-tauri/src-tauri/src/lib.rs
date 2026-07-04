@@ -11,7 +11,7 @@ use std::{net::TcpStream, sync::Mutex, time::Duration};
 use tauri::{AppHandle, Manager, WindowEvent};
 // ── Sidecar handle ─────────────────────────────────────────────────────────────
 /// Holds the child process so we can terminate it on exit.
-struct DaemonHandle(Mutex<Option<std::process::Child>>);
+struct DaemonHandle(Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
 
 fn daemon_already_running() -> bool {
     TcpStream::connect_timeout(
@@ -143,6 +143,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
             daemon_port, daemon_alive, open_browser_setup, dismiss_clipboard_url, cmd_quit_app,
             open_file_path, show_in_explorer
@@ -156,43 +157,33 @@ pub fn run() {
                 None
             } else {
                 eprintln!("[vajra] launching vajrad sidecar…");
-                log_to_file("tauri-shell.log", "Launching vajrad sidecar...");
+                log_to_file("tauri-shell.log", "Launching vajrad sidecar using Tauri shell API...");
                 
-                let current_exe = std::env::current_exe().unwrap_or_default();
-                let parent_dir = current_exe.parent().unwrap_or(std::path::Path::new(""));
-                let mut sidecar_path = parent_dir.join("vajrad.exe");
+                use tauri_plugin_shell::ShellExt;
+                let shell = app.handle().shell();
                 
-                if !sidecar_path.exists() {
-                    if let Ok(entries) = std::fs::read_dir(parent_dir) {
-                        for entry in entries.flatten() {
-                            let filename = entry.file_name().to_string_lossy().to_string();
-                            if filename.starts_with("vajrad") && filename.ends_with(".exe") {
-                                sidecar_path = entry.path();
-                                break;
+                let child = match shell.sidecar("vajrad") {
+                    Ok(cmd) => {
+                        // The sidecar command handles hiding the console window automatically on Windows
+                        match cmd.spawn() {
+                            Ok((_rx, child)) => {
+                                let success_msg = format!("Sidecar process spawned (pid: {:?})", child.pid());
+                                eprintln!("[vajra] {success_msg}");
+                                log_to_file("tauri-shell.log", &success_msg);
+                                Some(child)
+                            }
+                            Err(e) => {
+                                let err_msg = format!("ERROR: failed to spawn sidecar 'vajrad': {}", e);
+                                eprintln!("[vajra] {err_msg}");
+                                log_to_file("tauri-shell.log", &err_msg);
+                                use tauri_plugin_dialog::DialogExt;
+                                app.handle().dialog().message(err_msg).kind(tauri_plugin_dialog::MessageDialogKind::Error).show(|_| {});
+                                None
                             }
                         }
                     }
-                }
-                
-                log_to_file("tauri-shell.log", &format!("Trying to launch {:?}", sidecar_path));
-                
-                let mut cmd = std::process::Command::new(&sidecar_path);
-                
-                #[cfg(target_os = "windows")]
-                {
-                    use std::os::windows::process::CommandExt;
-                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-                }
-                
-                let child = match cmd.spawn() {
-                    Ok(child) => {
-                        let success_msg = format!("Sidecar process spawned (pid: {:?})", child.id());
-                        eprintln!("[vajra] {success_msg}");
-                        log_to_file("tauri-shell.log", &success_msg);
-                        Some(child)
-                    }
                     Err(e) => {
-                        let err_msg = format!("ERROR: failed to spawn sidecar at {:?}: {}", sidecar_path, e);
+                        let err_msg = format!("ERROR: failed to resolve sidecar 'vajrad': {}", e);
                         eprintln!("[vajra] {err_msg}");
                         log_to_file("tauri-shell.log", &err_msg);
                         use tauri_plugin_dialog::DialogExt;
@@ -400,7 +391,7 @@ fn quit_app(app: &AppHandle) {
     // Kill the daemon sidecar we launched
     if let Some(state) = app.try_state::<DaemonHandle>() {
         if let Ok(mut guard) = state.0.lock() {
-            if let Some(mut child) = guard.take() {
+            if let Some(child) = guard.take() {
                 let _ = child.kill();
                 eprintln!("[vajra] daemon terminated.");
             }

@@ -159,6 +159,20 @@ export default function MenuBar({
             />
           </div>
           <span className="menubar-brand-text">VAJRA</span>
+          <span
+            style={{
+              fontSize: '8px',
+              fontWeight: 800,
+              backgroundColor: 'var(--color-brand)',
+              color: '#fff',
+              padding: '2px 4px',
+              borderRadius: '4px',
+              marginLeft: '4px',
+              lineHeight: 1,
+            }}
+          >
+            BETA
+          </span>
         </div>
 
         {/* File menu */}

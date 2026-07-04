@@ -360,14 +360,14 @@ export default function PropertiesDialog({ item, onClose }: any) {
               <StatCard
                 icon={Download}
                 label="Total Size"
-                value={item.total_bytes ? fmtBytes(item.total_bytes) : 'â€”'}
+                value={item.total_bytes ? fmtBytes(item.total_bytes) : '—'}
               />
               <StatCard icon={Save} label="Downloaded" value={fmtBytes(item.bytes_done || 0)} />
               <StatCard
                 icon={Calendar}
                 label="Date Added"
                 value={
-                  item.created_at ? new Date(item.created_at * 1000).toLocaleDateString() : 'â€”'
+                  item.created_at ? new Date(item.created_at * 1000).toLocaleString() : '—'
                 }
               />
               <StatCard
@@ -375,8 +375,8 @@ export default function PropertiesDialog({ item, onClose }: any) {
                 label="Date Completed"
                 value={
                   item.completed_at
-                    ? new Date(item.completed_at * 1000).toLocaleDateString()
-                    : 'â€”'
+                    ? new Date(item.completed_at * 1000).toLocaleString()
+                    : '—'
                 }
               />
             </div>

@@ -144,7 +144,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     {
       label: 'Active Downloads',
       value: String(stats.active_count),
-      sub: stats.active_count === 1 ? 'in progress' : 'in progress',
+      sub: 'in progress',
       icon: <Activity size={18} />,
       accent: 'var(--color-brand)',
     },
@@ -154,6 +154,20 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       sub: 'waiting',
       icon: <Timer size={18} />,
       accent: 'var(--color-warning)',
+    },
+    {
+      label: 'Completed Today',
+      value: String(stats.complete_today ?? 0),
+      sub: 'finished',
+      icon: <Bolt size={18} />,
+      accent: 'var(--color-success)',
+    },
+    {
+      label: 'Failed Today',
+      value: String(stats.failed_today ?? 0),
+      sub: 'errors',
+      icon: <ArrowRightLeft size={18} />,
+      accent: 'var(--color-error)',
     },
     {
       label: 'Total Downloaded',

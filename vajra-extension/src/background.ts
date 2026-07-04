@@ -88,9 +88,12 @@ function updateBadge() {
 // Opens vajra://start which triggers the registered Windows URL protocol handler.
 // Returns true if daemon comes up within 10 seconds.
 async function tryAutoStart() {
-  // Open vajra:// link to trigger OS to launch vajra.bat
-  chrome.tabs.create({ url: 'vajra://start', active: false }, (tab) => {
-    setTimeout(() => { if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {}); }, 800);
+  // Silent start via Native Messaging Host
+  chrome.runtime.sendNativeMessage('com.vajra.manager', { cmd: 'start' }, () => {
+    // Ignore errors. If the host isn't registered, the fallback polling will time out.
+    if (chrome.runtime.lastError) {
+       console.warn('[Vajra] Native Messaging start failed:', chrome.runtime.lastError.message);
+    }
   });
   // Poll up to 10 seconds for daemon to respond
   for (let i = 0; i < 20; i++) {
@@ -407,8 +410,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     }
 
     case 'open_vajra':
-      // Open the daemon setup page in browser
-      chrome.tabs.create({ url: `${DAEMON}/setup` });
+      // Launch silently via Native Messaging Host
+      chrome.runtime.sendNativeMessage('com.vajra.manager', { cmd: 'open' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[Vajra] Native Messaging open failed:', chrome.runtime.lastError.message);
+          // Fallback to vajra:// link if Native Messaging isn't configured yet (e.g. old installer)
+          chrome.tabs.create({ url: 'vajra://open' });
+        }
+      });
+      // Also start the daemon if it isn't running
+      if (!daemonAlive) {
+        tryAutoStart();
+      }
       return true;
 
     case 'add_download':

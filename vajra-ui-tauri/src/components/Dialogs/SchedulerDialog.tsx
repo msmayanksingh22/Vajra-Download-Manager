@@ -90,8 +90,20 @@ export default function SchedulerDialog({ downloads, onClose }: any) {
       >
         {/* Header */}
         <div className="dialog-header">
-          <div className="dialog-header-title" id="scheduler-dialog-title">
+          <div className="dialog-header-title flex items-center gap-2" id="scheduler-dialog-title">
             <Clock size={16} /> Scheduler
+            <span
+              style={{
+                fontSize: '10px',
+                backgroundColor: 'var(--color-warning)',
+                color: '#fff',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                fontWeight: 600,
+              }}
+            >
+              Under Development
+            </span>
           </div>
           <button className="btn-icon" onClick={onClose} title="Close">
             <X size={15} />

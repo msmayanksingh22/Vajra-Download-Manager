@@ -19,9 +19,9 @@ export default function BatchRenameDialog({ items, onClose }: BatchRenameDialogP
       const ext = dotIndex >= 0 ? item.filename.substring(dotIndex + 1) : '';
 
       const newName = pattern
-        .replace('{name}', name)
-        .replace('{ext}', ext)
-        .replace('{index}', (i + 1).toString());
+        .replace(/\{name\}/g, name)
+        .replace(/\{ext\}/g, ext)
+        .replace(/\{index\}/g, (i + 1).toString());
 
       try {
         await api.patch(item.id, { filename: newName });

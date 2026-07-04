@@ -9,7 +9,8 @@
     "contextMenus",
     "notifications",
     "cookies",
-    "webRequest"
+    "webRequest",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -19,6 +20,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz8VFGKpfyp5FsaEeZU2FeGmWhBDHTDukru3yAxkktLlUpr/xlUv5GOQORPe75qdRGwQ3pdfINnNH/F2e9gSReRlrWtCcKNG7GUzdS7iqRYylRRjtwkDTpM1X6ndQEV50TOXwxZWkjDCBd8q52hTiNQlAGQURhp+P59kc3w8rY5TOXfiXei2fOWms90Z1f6F1Ety0irlgrV1rRhSZkokuRyTCnytrxITo7eqQCiT01bw5o4r5RKVBCA5/K3c9YKkr+gviMqLH3H2KBYsu9n5U9bImbgwW4NOqtMA8qDWq0d9FB94QDFIlNRMpRBgpIy8s5vahJMwDO+DkJeEgnBjiUQIDAQAB",
   "icons": {
     "16": "logo.png",
     "32": "logo.png",

@@ -15,26 +15,24 @@ const buildCmd = target
   : `cargo build --release --bin vajrad`;
 
 try {
-  // Build vajrad
-  // We run this from vajra-ui-tauri context, so root is ..
-  execSync(buildCmd, { stdio: 'inherit', cwd: join(process.cwd(), '..') });
+  // Build vajrad and vajra
+  execSync(target ? `cargo build --release --bin vajrad --bin vajra --target ${target}` : `cargo build --release --bin vajrad --bin vajra`, { stdio: 'inherit', cwd: join(process.cwd(), '..') });
 } catch (err) {
-  console.error('Failed to build vajrad sidecar:', err);
+  console.error('Failed to build sidecars:', err);
   process.exit(1);
 }
 
 // Find the compiled binary
 const extension = target?.includes('windows') || process.platform === 'win32' ? '.exe' : '';
 const targetDir = target ? `target/${target}/release` : `target/release`;
-const sourceBin = join(process.cwd(), '..', targetDir, `vajrad${extension}`);
 
-// Destination directory is src-tauri
-const destDir = join(process.cwd(), 'src-tauri');
+// Destination directory is src-tauri/bin
+const destDir = join(process.cwd(), 'src-tauri', 'bin');
 if (!existsSync(destDir)) {
   mkdirSync(destDir, { recursive: true });
 }
 
-// Tauri expects the binary to be named vajrad-<target><extension>
+// Tauri expects the binary to be named <name>-<target><extension>
 let finalTarget = target;
 if (!finalTarget) {
   finalTarget = execSync('rustc -vV')
@@ -43,7 +41,12 @@ if (!finalTarget) {
     .trim();
 }
 
-const destBin = join(destDir, `vajrad-${finalTarget}${extension}`);
-console.log(`Copying sidecar: ${sourceBin} -> ${destBin}`);
-copyFileSync(sourceBin, destBin);
+const binaries = ['vajrad', 'vajra'];
+for (const bin of binaries) {
+  const sourceBin = join(process.cwd(), '..', targetDir, `${bin}${extension}`);
+  const destBin = join(destDir, `${bin}-${finalTarget}${extension}`);
+  console.log(`Copying sidecar: ${sourceBin} -> ${destBin}`);
+  copyFileSync(sourceBin, destBin);
+}
 console.log('Sidecar build complete.');
+

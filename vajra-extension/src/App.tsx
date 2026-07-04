@@ -79,11 +79,9 @@ function App() {
   const handleLaunchVajra = () => {
     const url = daemonStatus === 'online' ? 'vajra://open' : 'vajra://start';
     if (chrome && chrome.tabs) {
-      chrome.tabs.create({ url, active: false }, (tab: any) => {
-        setTimeout(() => {
-          if (tab && tab.id) chrome.tabs.remove(tab.id).catch(() => { });
-        }, 500);
-      });
+      // Chrome will show an "Open Vajra?" dialog in the new tab.
+      // Do NOT auto-close it — the user must click "Open Vajra" to confirm.
+      chrome.tabs.create({ url, active: true });
     }
   };
 
