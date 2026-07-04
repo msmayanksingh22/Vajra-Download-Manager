@@ -5,11 +5,7 @@ edition = "2021"
 license = "GPL-3.0-only"
 
 [[bin]]
-name = "vajra"
-path = "src/main.rs"
-
-[[bin]]
-name = "vdm"
+name = "vajra-cli"
 path = "src/main.rs"
 
 [dependencies]

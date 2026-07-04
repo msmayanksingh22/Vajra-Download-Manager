@@ -11,12 +11,12 @@ if (!target) {
 }
 
 const buildCmd = target
-  ? `cargo build --release --bin vajrad --target ${target}`
-  : `cargo build --release --bin vajrad`;
+  ? `cargo build --release --bin vajrad --bin vajra-cli --target ${target}`
+  : `cargo build --release --bin vajrad --bin vajra-cli`;
 
 try {
-  // Build vajrad and vajra
-  execSync(target ? `cargo build --release --bin vajrad --bin vajra --target ${target}` : `cargo build --release --bin vajrad --bin vajra`, { stdio: 'inherit', cwd: join(process.cwd(), '..') });
+  // Build vajrad and vajra-cli
+  execSync(target ? `cargo build --release --bin vajrad --bin vajra-cli --target ${target}` : `cargo build --release --bin vajrad --bin vajra-cli`, { stdio: 'inherit', cwd: join(process.cwd(), '..') });
 } catch (err) {
   console.error('Failed to build sidecars:', err);
   process.exit(1);
@@ -41,7 +41,7 @@ if (!finalTarget) {
     .trim();
 }
 
-const binaries = ['vajrad', 'vajra'];
+const binaries = ['vajrad', 'vajra-cli'];
 for (const bin of binaries) {
   const sourceBin = join(process.cwd(), '..', targetDir, `${bin}${extension}`);
   const destBin = join(destDir, `${bin}-${finalTarget}${extension}`);

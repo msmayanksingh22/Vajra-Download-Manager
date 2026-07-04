@@ -59,18 +59,18 @@ jobs:
         run: npm ci
         working-directory: vajra-ui-tauri
 
-      # Build the vajrad daemon sidecar and copy it to src-tauri so Tauri can bundle it
-      - name: Build vajrad sidecar (host target)
+      # Build the vajrad daemon and vajra CLI sidecars and copy them to src-tauri/bin
+      - name: Build sidecars (host target)
         if: matrix.rust_target == ''
-        run: cargo build --release --bin vajrad
+        run: cargo build --release --bin vajrad --bin vajra-cli
         working-directory: .
 
-      - name: Build vajrad sidecar (cross target)
+      - name: Build sidecars (cross target)
         if: matrix.rust_target != ''
-        run: cargo build --release --bin vajrad --target ${{ matrix.rust_target }}
+        run: cargo build --release --bin vajrad --bin vajra-cli --target ${{ matrix.rust_target }}
         working-directory: .
 
-      - name: Copy vajrad sidecar to src-tauri (host)
+      - name: Copy sidecars to src-tauri/bin (host)
         if: matrix.rust_target == ''
         shell: bash
         run: |
@@ -80,22 +80,28 @@ jobs:
             EXT=""
           fi
           HOST=$(rustc -vV | grep 'host:' | awk '{print $2}')
-          cp "target/release/vajrad${EXT}" "vajra-ui-tauri/src-tauri/vajrad-${HOST}${EXT}"
-          echo "Copied: vajrad-${HOST}${EXT}"
+          mkdir -p vajra-ui-tauri/src-tauri/bin
+          cp "target/release/vajrad${EXT}" "vajra-ui-tauri/src-tauri/bin/vajrad-${HOST}${EXT}"
+          cp "target/release/vajra-cli${EXT}" "vajra-ui-tauri/src-tauri/bin/vajra-cli-${HOST}${EXT}"
+          echo "Copied: vajrad-${HOST}${EXT} and vajra-cli-${HOST}${EXT}"
 
-      - name: Copy vajrad sidecar to src-tauri (cross)
+      - name: Copy sidecars to src-tauri/bin (cross)
         if: matrix.rust_target != ''
         shell: bash
         run: |
           TARGET="${{ matrix.rust_target }}"
           EXT=""
-          cp "target/${TARGET}/release/vajrad${EXT}" "vajra-ui-tauri/src-tauri/vajrad-${TARGET}${EXT}"
-          echo "Copied: vajrad-${TARGET}${EXT}"
+          mkdir -p vajra-ui-tauri/src-tauri/bin
+          cp "target/${TARGET}/release/vajrad${EXT}" "vajra-ui-tauri/src-tauri/bin/vajrad-${TARGET}${EXT}"
+          cp "target/${TARGET}/release/vajra-cli${EXT}" "vajra-ui-tauri/src-tauri/bin/vajra-cli-${TARGET}${EXT}"
+          echo "Copied: vajrad-${TARGET}${EXT} and vajra-cli-${TARGET}${EXT}"
 
       - name: Build and Release Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUSTFLAGS: "--cfg reqwest_unstable"
+          TARGET: ${{ matrix.rust_target }}
         with:
           tagName: v__VERSION__
           releaseName: "Vajra v__VERSION__ (Beta)"

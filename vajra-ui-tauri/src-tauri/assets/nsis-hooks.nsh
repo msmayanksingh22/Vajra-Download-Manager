@@ -4,27 +4,27 @@
 ; These macros are called by the Tauri-generated NSIS installer automatically.
 
 !macro customInstall
-  ; Add install dir to HKCU Environment PATH so 'vajra' works without admin
-  ReadRegStr $0 HKCU "Environment" "Path"
+  ; Add install dir to HKLM Environment PATH so 'vajra' works for all users
+  ReadRegStr $0 HKLM "System\CurrentControlSet\Control\Session Manager\Environment" "Path"
   Push $0
   Push "$INSTDIR"
   Call StrContains
   Pop $1
   StrCmp $1 "" 0 path_already_set
     StrCpy $0 "$0;$INSTDIR"
-    WriteRegExpandStr HKCU "Environment" "Path" $0
+    WriteRegExpandStr HKLM "System\CurrentControlSet\Control\Session Manager\Environment" "Path" $0
   path_already_set:
 
   ; Create vdm.bat alias
   FileOpen $1 "$INSTDIR\vdm.bat" w
   FileWrite $1 "@echo off$\r$\n"
-  FileWrite $1 '"$INSTDIR\vajra.exe" %*$\r$\n'
+  FileWrite $1 '"$INSTDIR\vajra-cli.exe" %*$\r$\n'
   FileClose $1
 
   ; Create vajra.bat alias
   FileOpen $1 "$INSTDIR\vajra.bat" w
   FileWrite $1 "@echo off$\r$\n"
-  FileWrite $1 '"$INSTDIR\vajra.exe" %*$\r$\n'
+  FileWrite $1 '"$INSTDIR\vajra-cli.exe" %*$\r$\n'
   FileClose $1
 
   ; Broadcast WM_SETTINGCHANGE so new PATH is live
@@ -56,8 +56,8 @@
   FileClose $1
 
   ; Register in Chrome and Edge registries
-  WriteRegStr HKCU "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager" "" "$INSTDIR\com.vajra.manager.json"
-  WriteRegStr HKCU "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager" "" "$INSTDIR\com.vajra.manager.json"
+  WriteRegStr HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager" "" "$INSTDIR\com.vajra.manager.json"
+  WriteRegStr HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager" "" "$INSTDIR\com.vajra.manager.json"
 !macroend
 
 !macro customUnInstall
@@ -68,8 +68,8 @@
   Delete "$INSTDIR\com.vajra.manager.json"
 
   ; Remove registries
-  DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager"
-  DeleteRegKey HKCU "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager"
+  DeleteRegKey HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager"
+  DeleteRegKey HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager"
 !macroend
 
 ; ── Helper: StrContains ───────────────────────────────────────────────────────

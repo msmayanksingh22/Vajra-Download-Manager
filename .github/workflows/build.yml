@@ -41,13 +41,14 @@ jobs:
         with:
           shared-key: "vajra-ci-${{ matrix.os }}"
 
-      - name: Create dummy Linux sidecar (Ubuntu — skip cross compilation)
-        if: matrix.os == 'ubuntu-22.04'
+      - name: Create dummy sidecars for Tauri build.rs
         run: |
           mkdir -p vajra-ui-tauri/src-tauri/bin
           touch vajra-ui-tauri/src-tauri/bin/vajrad-x86_64-unknown-linux-gnu
-          touch vajra-ui-tauri/src-tauri/bin/vajra-x86_64-unknown-linux-gnu
-          chmod +x vajra-ui-tauri/src-tauri/bin/*
+          touch vajra-ui-tauri/src-tauri/bin/vajra-cli-x86_64-unknown-linux-gnu
+          touch vajra-ui-tauri/src-tauri/bin/vajrad-x86_64-pc-windows-msvc.exe
+          touch vajra-ui-tauri/src-tauri/bin/vajra-cli-x86_64-pc-windows-msvc.exe
+        shell: bash
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check

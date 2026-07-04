@@ -39,7 +39,7 @@
         "installerHooks": "assets/nsis-hooks.nsh"
       }
     },
-    "externalBin": ["bin/vajrad", "bin/vajra"],
+    "externalBin": ["bin/vajrad", "bin/vajra-cli"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
