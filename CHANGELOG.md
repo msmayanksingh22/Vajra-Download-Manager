@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) conventi
 
 ---
 
-## [1.0.0-beta.1] — 2026-07-04 · Grand Public Beta Release 🎉
+## [0.2.1] — 2026-07-04 · Grand Public Beta Release 🎉
 
 This is the first public release of Vajra. Everything below represents the full
 development history leading up to this beta milestone.
@@ -19,7 +19,7 @@ development history leading up to this beta milestone.
 - **VPN kill switch** — pauses downloads automatically on interface loss
 - **Chrome/Edge Manifest V3 extension** — intercepts, sniffs media streams, batch captures
 - **Headless daemon mode** — full REST API + Server-Sent Events at `127.0.0.1:6277`
-- **CLI client** (`vajra get`) — scriptable, supports priorities, hash verification, ytdlp
+- **CLI client** (`vajra-cli get`) — scriptable, supports priorities, hash verification, ytdlp (fixed sidecar renaming)
 - **Tauri v2 desktop app** — frameless React shell, tray controls, deep-link `vajra://`
 - **Custom NSIS Windows installer** — auto-registers URL handler, Defender exclusions
 

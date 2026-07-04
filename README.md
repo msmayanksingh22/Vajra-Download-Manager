@@ -134,6 +134,26 @@ dev.bat
 
 ---
 
+## 💻 CLI Usage
+
+Vajra includes a powerful CLI named `vajra-cli` that allows you to download files from your terminal or automate downloads via scripts.
+
+**Basic Download:**
+```bash
+vajra-cli get "https://example.com/largefile.zip"
+```
+
+**Advanced Usage:**
+```bash
+vajra-cli get "https://example.com/largefile.zip" \
+  --output "C:\Downloads\file.zip" \
+  --connections 16 \
+  --priority high
+```
+*(Run `vajra-cli --help` for all available commands and flags)*
+
+---
+
 ## 🔌 API Reference
 
 Vajra's headless capabilities are powered by a REST API accessible at `http://127.0.0.1:6277/api/v1`:
