@@ -2,7 +2,7 @@
   <img src="logo.png" alt="Vajra Logo" width="300"/>
 
   <h1>Vajra Download Manager</h1>
-  <p><strong>The high-performance, developer-first download manager.<br>Headless-capable, API-driven, and built with Rust + Tauri.</strong></p>
+  <p><strong>The high-performance, next-generation download manager.<br>Unleash the full bandwidth of your connection.</strong></p>
 
   <p>
     <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/actions/workflows/build.yml">
@@ -18,125 +18,70 @@
       <img src="https://img.shields.io/github/license/msmayanksingh22/Vajra-Download-Manager?style=for-the-badge&color=238636" alt="License" />
     </a>
   </p>
-  <p>
-    <a href="https://rustup.rs">
-      <img src="https://img.shields.io/badge/rust-1.75%2B-orange?style=for-the-badge&logo=rust" alt="Rust Version" />
-    </a>
-    <a href="https://tauri.app">
-      <img src="https://img.shields.io/badge/tauri-v2-blue?style=for-the-badge&logo=tauri" alt="Tauri v2" />
-    </a>
-  </p>
 </div>
 
 <br />
 
-Welcome to **Vajra**, a next-generation download manager engineered for ultimate speed, system efficiency, and developer extensibility. 
+Welcome to **Vajra**, a next-generation download manager engineered for ultimate speed and system efficiency. 
 
-Whether you need a blazing-fast UI for your daily downloads or a headless daemon to integrate into your backend services, Vajra delivers.
-
----
-
-## ✨ Key Features
-
-| Feature | Description |
-| :--- | :--- |
-| **⚡ Parallel Multiplexing** | Splits files into byte-range segments using concurrent HTTP requests, achieving speeds up to **10x faster** than standard browser downloaders. |
-| **🧠 Connection Stealing** | Dynamically reassigns idle connection threads to assist the slowest active segment, ensuring zero idle workers. |
-| **💾 OS-Level Pre-allocation** | Bypasses zero-filling by using native OS APIs (`SetEndOfFile`, `fallocate`, `fcntl`) to pre-allocate file structures instantly. |
-| **🚀 Zero-Copy Memory Mapping** | Leverages memory-mapped file handles to write network packages directly to disk positions, bypassing traditional user-space buffering. |
-| **🔒 Integrated VPN Kill Switch** | Continuously monitors system interfaces and automatically pauses active downloads if your VPN connection drops. |
-| **🌐 Smart Browser Interception** | Integrated Chrome/Edge Manifest V3 extension intercepts native downloads, sniffs media streams, and captures batches. |
+Whether you need a blazing-fast user interface for your daily downloads, a terminal CLI for automation, or a browser extension that flawlessly intercepts your clicks, Vajra delivers a premium experience out of the box.
 
 ---
 
-## 🏗️ Architecture
+## ✨ Why Vajra?
 
-Vajra employs a decoupled architecture separating the high-speed Rust engine from the React/Tauri frontend.
+Vajra isn't just another downloader. It uses advanced network and file-system level optimizations to saturate your bandwidth:
 
-```mermaid
-flowchart LR
-    classDef main fill:#1f2937,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    classDef ext fill:#1e1b4b,stroke:#818cf8,stroke-width:1px,color:#fff;
-    classDef engine fill:#111827,stroke:#10b981,stroke-width:2px,color:#fff;
-    classDef db fill:#374151,stroke:#9ca3af,stroke-width:1px,color:#fff;
-
-    subgraph Browser["Web Browser"]
-        Ext["Vajra Chrome Extension"]:::ext
-    end
-
-    subgraph DesktopApp["Tauri Desktop (React)"]
-        UI["React Frontend"]:::main
-        Tauri["Tauri Shell"]:::main
-    end
-
-    subgraph Service["Background Daemon (vajrad)"]
-        Api["Axum REST API"]:::engine
-        Queue["Fair Access Queue"]:::engine
-        Engine["Multi-Threaded Engine"]:::engine
-    end
-
-    DB[("SQLite State Store")]:::db
-
-    Ext -->|POST /api/v1/intercept| Api
-    UI -->|REST Queries / SSE| Api
-    Tauri -->|Launches Sidecar| Api
-    Api --> Queue
-    Queue --> Engine
-    Engine --> DB
-```
+- **⚡ Parallel Multiplexing**: Splits files into byte-range segments using concurrent connections, achieving speeds up to **10x faster** than standard browser downloaders.
+- **🧠 Connection Stealing**: Dynamically reassigns idle connection threads to assist the slowest active segment, ensuring zero idle workers.
+- **💾 OS-Level Pre-allocation**: Instantly allocates space on your hard drive to prevent file fragmentation and zero-filling delays.
+- **🚀 Zero-Copy Memory Mapping**: Writes network packages directly to your disk, bypassing traditional memory buffering for minimal RAM usage.
+- **🔒 Integrated VPN Kill Switch**: Continuously monitors your network interfaces and automatically pauses active downloads if your VPN connection drops.
 
 ---
 
-## 📦 Workspace Structure
+## 💿 Installation Guide
 
-Vajra is organized as a modular Rust Cargo workspace:
+Getting Vajra installed on your system is incredibly simple. Head over to our [Releases Page](https://github.com/msmayanksingh22/Vajra-Download-Manager/releases/latest) and download the appropriate installer for your OS:
 
-- **`vajra-engine`**: High-performance multi-threaded core (throttling, multiplexing, sparse allocation, mmap).
-- **`vajra-daemon`**: Axum-based server managing queue schedules, RSS feeds, WebDAV files, and webhook integrations.
-- **`vajra-protocol`**: Unified serialization protocols and type mappings shared between clients and daemon.
-- **`vajra-cli`**: Clap-based CLI client with full IDM command parameter mapping.
-- **`vajra-ui-tauri`**: React-based desktop control center wrapping the daemon sidecar.
-- **`vajra-extension`**: Chrome Manifest V3 sniffer extension.
-- **`vajra-mobile`**: React Native (Expo) companion application.
+### 🪟 Windows (10 / 11)
+- Download the `.msi` or `.exe` installer.
+- Double-click to run the setup wizard.
+- Vajra will automatically launch and place a shortcut on your desktop.
+
+### 🍎 macOS (Intel & Apple Silicon)
+- Download the `.dmg` file.
+- Open the `.dmg` and drag the **Vajra** icon into your `Applications` folder.
+- *Note: On first launch, you may need to right-click the app and select "Open" to bypass macOS Gatekeeper.*
+
+### 🐧 Linux (Debian, Ubuntu, Arch, etc.)
+- Download the `.AppImage` or `.deb` file.
+- **For Debian/Ubuntu**: Double-click the `.deb` file or install via terminal: `sudo apt install ./vajra_*.deb`
+- **For AppImage**: Make it executable (`chmod +x Vajra-*.AppImage`) and run it.
 
 ---
 
 ## 🚀 Getting Started
 
-### Prerequisites
+Vajra comes with three powerful interfaces designed to fit seamlessly into your workflow.
 
-- [Rust stable](https://rustup.rs) (1.75+)
-- [Node.js 20+](https://nodejs.org)
-- [VS Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) (Windows only, with "Desktop development with C++")
+### 1. The Desktop App (UI)
+The main window is your control center. When you open Vajra, it starts a lightweight background engine to handle your files.
+- Click the **"+" (Add)** button to paste a URL and start a new download.
+- Manage your queue: Pause, resume, or cancel active tasks.
+- If you close the window, Vajra minimizes to your system tray so your downloads keep running in the background!
 
-### Build & Launch
+### 2. The Browser Extension
+For the ultimate convenience, install the Vajra browser extension. It automatically catches files you click on the web and sends them straight to the Vajra Desktop App.
 
-Run the root build script to compile the backend crates and frontend targets automatically:
-
-```bat
-build-all.bat
-```
-
-To launch the desktop application on Windows, you can also use the development script:
-
-```bat
-dev.bat
-```
-
-> **Note:** The desktop app starts the background daemon automatically. If you close the main window, the application will minimize to the system tray.
-
-### Browser Extension Setup
-
-1. Open `chrome://extensions` or `edge://extensions` in your browser.
+1. Open `chrome://extensions` (or `edge://extensions`) in your browser.
 2. Enable **Developer Mode**.
-3. Click **Load unpacked** and select the `vajra-extension/` directory. *(For production, load the `dist/` directory after running `npm run build` inside the extension folder).*
-4. Click the extension icon and select **Launch Vajra** if the daemon is offline.
+3. Download the [Latest Release](https://github.com/msmayanksingh22/Vajra-Download-Manager/releases/latest) and extract the `vajra-extension.zip` file.
+4. Click **Load unpacked** and select the extracted folder.
+5. Make sure the Vajra Desktop App is running, and you're good to go!
 
----
-
-## 💻 CLI Usage
-
-Vajra includes a powerful CLI named `vajra-cli` that allows you to download files from your terminal or automate downloads via scripts.
+### 3. The Terminal CLI (`vajra-cli`)
+Are you a power user? Automate your workflows directly from your terminal! The `vajra-cli` tool is bundled with the desktop app.
 
 **Basic Download:**
 ```bash
@@ -144,46 +89,38 @@ vajra-cli get "https://example.com/largefile.zip"
 ```
 
 **Advanced Usage:**
+Download a file with 16 concurrent connections to a specific folder:
 ```bash
 vajra-cli get "https://example.com/largefile.zip" \
   --output "C:\Downloads\file.zip" \
   --connections 16 \
   --priority high
 ```
-*(Run `vajra-cli --help` for all available commands and flags)*
+*(Run `vajra-cli --help` for a full list of available commands and flags)*
 
 ---
 
-## 🔌 API Reference
+## 🔌 API Reference (Headless Mode)
 
-Vajra's headless capabilities are powered by a REST API accessible at `http://127.0.0.1:6277/api/v1`:
+For developers and automation enthusiasts, Vajra's background engine exposes a local REST API at `http://127.0.0.1:6277/api/v1`. You can build your own tools on top of Vajra!
 
-- `GET /health` — Daemon health check
+- `GET /health` — Check if the daemon is running
 - `GET /downloads` — List all active and completed downloads
-- `POST /downloads` — Submit a new download task
+- `POST /downloads` — Submit a new download task programmatically
 - `PATCH /downloads/:id` — Control task state (pause/resume/cancel)
 - `GET /stats` — Live global queue throughput and speed statistics
 - `GET /events` — Real-time progress updates via Server-Sent Events (SSE)
 
 ---
 
-## 💻 Cross-Platform Support
+## 🤝 Community & Support
 
-Vajra supports the following operating systems:
-
-- **Windows 10 / 11** ✅ (Native MSI / NSIS Installers)
-- **macOS (Intel & Apple Silicon)** ✅ (DMG / App)
-- **Linux (Debian, Ubuntu, Arch, etc.)** ✅ (DEB / AppImage)
-
----
-
-## 🤝 Contributing
-
-We welcome contributions of all sizes! Check out our [Contributing Guide](CONTRIBUTING.md) to get started with the development workflow, coding standards, and PR process.
+- **Found a bug?** Open an issue on our [GitHub Tracker](https://github.com/msmayanksingh22/Vajra-Download-Manager/issues).
+- **Want to contribute code?** Check out our [Developer & Contributor Guide](DEVELOPER.md) to learn how to build Vajra from source and submit Pull Requests!
 
 ---
 
 ## 🛡️ License & Security
 
-- **License:** Vajra is open source and available under the [GPL-3.0 License](LICENSE).
+- **License:** Vajra is 100% open source and available under the [GPL-3.0 License](LICENSE).
 - **Security:** Please review our [Security Policy](SECURITY.md) to report vulnerabilities privately.

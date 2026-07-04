@@ -10,21 +10,9 @@ If you've noticed a bug or have a feature request, make one! It's generally best
 
 If this is something you think you can fix, then fork Vajra and create a branch with a descriptive name.
 
-## Get the test suite running
+## Get the test suite running & Build the Project
 
-Make sure you have Rust, Node.js, and Tauri pre-requisites installed.
-
-```bash
-cargo build --workspace
-cargo test --workspace
-```
-
-For the frontend:
-```bash
-cd vajra-ui-tauri
-npm install
-npm run dev
-```
+To compile the backend, frontend, or browser extension, please refer to our comprehensive [Developer & Contributor Guide](DEVELOPER.md). It contains all the prerequisites, build scripts, and manual compilation steps.
 
 ## Implement your fix or feature
 
