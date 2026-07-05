@@ -18,6 +18,9 @@
     <a href="https://github.com/msmayanksingh22/Vajra-Download-Manager/blob/main/LICENSE">
       <img src="https://img.shields.io/github/license/msmayanksingh22/Vajra-Download-Manager?style=for-the-badge&color=238636" alt="GPL-3.0 License" />
     </a>
+    <a href="https://github.com/sponsors/msmayanksingh22">
+      <img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github-sponsors" alt="Sponsor on GitHub" />
+    </a>
   </p>
 
   <p>
@@ -36,7 +39,8 @@
     <a href="#-browser-extension">🌐 Extension</a> ·
     <a href="#-cli-reference">💻 CLI</a> ·
     <a href="#-headless--api">🔌 API</a> ·
-    <a href="DEVELOPER.md">🛠️ Build from Source</a>
+    <a href="DEVELOPER.md">🛠️ Build from Source</a> ·
+    <a href="#-support-the-project">❤️ Sponsor</a>
   </p>
 </div>
 
@@ -553,7 +557,27 @@ We welcome contributions of all sizes — bug reports, documentation improvement
 
 ---
 
+## ❤️ Support the Project
+
+Vajra is free and open source — no ads, no paywalls, no tracking. If it saves you time or bandwidth, consider supporting its development:
+
+<div align="center">
+
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor%20on%20GitHub-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github-sponsors)](https://github.com/sponsors/msmayanksingh22)
+
+</div>
+
+Your support helps with:
+- 🖥️ macOS code-signing certificates (to remove the Gatekeeper warning)
+- ⚡ CI/CD build minutes for all 3 platforms
+- ⏱️ Time to work on new features and bug fixes
+
+Even starring ⭐ the repo helps a lot — it makes Vajra more discoverable for other users!
+
+---
+
 ## 🛡️ License & Security
 
 - **License:** Vajra is free and open source software, available under the **[GPL-3.0 License](LICENSE)**.
 - **Security:** To report a vulnerability privately, see our **[Security Policy](SECURITY.md)**.
+
