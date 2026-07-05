@@ -59,11 +59,19 @@ Beyond speed, Vajra also gives you:
 
 ## 📸 Screenshots
 
-> Screenshots are coming soon. The UI is a clean, dark-mode desktop app built with React + Tauri.
+<div align="center">
 
-<!-- TODO: Add screenshots here once app is running -->
-<!-- <img src="docs/screenshot-main.png" alt="Vajra Main Window" width="800"/> -->
-<!-- <img src="docs/screenshot-tray.png" alt="Vajra System Tray" width="400"/> -->
+<img src="docs/screenshots/vajra-main-window.png" alt="Vajra Main Window — dark themed download queue" width="800"/>
+
+*Main window: clean dark UI with sidebar navigation, download queue, file type categories, and smart lists*
+
+<br/>
+
+<img src="docs/screenshots/vajra-about-dialog.png" alt="Vajra About Dialog" width="600"/>
+
+*About dialog showing the Vajra logo and version info*
+
+</div>
 
 ---
 
@@ -150,6 +158,37 @@ chmod +x Vajra_x.x.x_amd64.AppImage
 ```
 
 > **Optional:** Use [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) to integrate the AppImage into your system launcher.
+
+---
+
+## 🔨 Build from Source
+
+Want to build Vajra yourself? It's fully open source. Here's the short version:
+
+```bash
+# 1. Clone
+git clone https://github.com/msmayanksingh22/Vajra-Download-Manager.git
+cd Vajra-Download-Manager
+
+# 2. Build the Rust backend (daemon + CLI)
+cargo build --workspace --release
+
+# 3. Install frontend dependencies
+cd vajra-ui-tauri
+npm install
+
+# 4a. Run in development mode (hot-reload)
+npm run tauri dev
+
+# 4b. OR build a production installer
+npm run tauri build
+
+# 5. Build the browser extension
+cd ../vajra-extension
+npm install && npm run build
+```
+
+> 📖 **Full build guide** (prerequisites per OS, testing, CI): see **[DEVELOPER.md](DEVELOPER.md)**
 
 ---
 

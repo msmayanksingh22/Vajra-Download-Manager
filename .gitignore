@@ -45,8 +45,10 @@ clippy*.txt
 # Icon generation helper script (not needed for building)
 generate_icons.mjs
 
-# Internal AI planning docs
-docs/
+# Internal AI planning docs — ignore everything EXCEPT screenshots
+docs/*
+!docs/screenshots/
+
 
 # Test artifacts
 test_dir/
