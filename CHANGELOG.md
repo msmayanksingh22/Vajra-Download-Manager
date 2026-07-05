@@ -6,7 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) conventi
 
 ---
 
-## [0.2.1] — 2026-07-04 · Grand Public Beta Release 🎉
+> **A note on version numbers:** Vajra was developed privately before going public.
+> During development, internal build numbers tracked individual phases (v0.4.x → v1.4.x).
+> When it came time for the first public release, the version was reset to **v0.2.1**
+> to reflect that this is still an early beta. The history below shows the full
+> internal development journey leading up to this milestone.
+
+---
+
+## [0.2.1] — 2026-07-04 · 🎉 Grand Public Beta Release
 
 This is the first public release of Vajra. Everything below represents the full
 development history leading up to this beta milestone.

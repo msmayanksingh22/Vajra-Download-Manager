@@ -24,19 +24,59 @@
     <img src="https://img.shields.io/badge/Rust-1.75%2B-orange?style=flat-square&logo=rust" alt="Rust 1.75+" />
     <img src="https://img.shields.io/badge/Tauri-v2-blue?style=flat-square&logo=tauri" alt="Tauri v2" />
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-informational?style=flat-square" alt="Cross-platform" />
+    <img src="https://img.shields.io/badge/Status-Public%20Beta-yellow?style=flat-square" alt="Public Beta" />
   </p>
 
   <br />
 
   <p>
     <a href="#-installation">⬇️ Download Now</a> ·
-    <a href="#-using-the-desktop-app">🖥️ Desktop App</a> ·
+    <a href="#-quick-start-30-seconds">🚀 Quick Start</a> ·
+    <a href="#️-using-the-desktop-app">🖥️ Desktop App</a> ·
     <a href="#-browser-extension">🌐 Extension</a> ·
     <a href="#-cli-reference">💻 CLI</a> ·
     <a href="#-headless--api">🔌 API</a> ·
     <a href="DEVELOPER.md">🛠️ Build from Source</a>
   </p>
 </div>
+
+---
+
+## 🤔 What Is Vajra?
+
+Vajra is a **free, open-source download manager** — a replacement for your browser's built-in downloader. Instead of downloading files one piece at a time, Vajra splits each file into many pieces and downloads them all at once in parallel, dramatically increasing speed.
+
+Think of it like this: your internet connection is a multi-lane highway, but your browser only uses one lane. Vajra uses all of them.
+
+Beyond speed, Vajra also gives you:
+- A **desktop app** with a clean queue and progress view
+- A **browser extension** that automatically intercepts downloads
+- A **command-line tool** for power users and automation
+- A **REST API** for scripting and headless operation
+- A **VPN Kill Switch** that pauses downloads if your VPN drops
+
+---
+
+## 📸 Screenshots
+
+> Screenshots are coming soon. The UI is a clean, dark-mode desktop app built with React + Tauri.
+
+<!-- TODO: Add screenshots here once app is running -->
+<!-- <img src="docs/screenshot-main.png" alt="Vajra Main Window" width="800"/> -->
+<!-- <img src="docs/screenshot-tray.png" alt="Vajra System Tray" width="400"/> -->
+
+---
+
+## 🚀 Quick Start (30 Seconds)
+
+**Just want to download a file faster? Do this:**
+
+1. Go to the **[Latest Release Page](https://github.com/msmayanksingh22/Vajra-Download-Manager/releases/latest)**
+2. Download the installer for your OS (Windows: `.exe`, macOS: `.dmg`, Linux: `.deb`)
+3. Install and launch — Vajra appears in your **system tray**
+4. Click the `+` button, paste a URL, hit **Start**
+
+That's it. Vajra will download it using parallel connections automatically.
 
 ---
 
@@ -422,13 +462,45 @@ A: With the browser extension installed, yes — it intercepts qualifying downlo
 A: Vajra is 100% open source and the code is auditable. Some antivirus tools flag any new `.exe` that opens network connections, which is a false positive. The full source code is here on GitHub.
 
 **Q: Can Vajra download YouTube videos?**
-A: Yes, using the `--ytdlp` flag (CLI) or the "Use yt-dlp" option in the UI. This requires `yt-dlp` to be installed separately and available on your `PATH`.
+A: Yes, using the `--ytdlp` flag (CLI) or the "Use yt-dlp" option in the UI. **Note:** This requires [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) to be installed separately and available on your `PATH`.
 
 **Q: What happens if my internet cuts out mid-download?**
 A: Vajra saves progress per-segment. When your connection is restored, it resumes automatically from exactly where it left off.
 
 **Q: I want to build Vajra from source — where do I start?**
 A: See the [Developer Guide](DEVELOPER.md) for complete, per-OS build instructions.
+
+**Q: The app launched but I don't see a window. Where is it?**
+A: Check your **system tray** (bottom-right on Windows, top menu bar on macOS). Vajra runs there by default. Click or right-click the icon to open the main window.
+
+**Q: Is there a portable version that doesn't need installation?**
+A: Not yet, but it's planned. For now, use the `.AppImage` on Linux for a near-portable experience.
+
+---
+
+## 🗺️ Roadmap
+
+Vajra is in active development. Here's what's coming:
+
+- [ ] Firefox extension support
+- [ ] Torrent / Magnet link support
+- [ ] Built-in `yt-dlp` bundling (no separate install needed)
+- [ ] Portable (no-install) Windows build
+- [ ] Dark/Light theme toggle in settings
+- [ ] Download categories and auto-sorting rules
+
+Have an idea? **[Start a Discussion](https://github.com/msmayanksingh22/Vajra-Download-Manager/discussions)** or **[Open an Issue](https://github.com/msmayanksingh22/Vajra-Download-Manager/issues/new)**.
+
+---
+
+## 🧪 Public Beta — We Need Your Help!
+
+Vajra is in **public beta**. This means:
+- ✅ Core features are working and stable for daily use
+- ⚠️ Some edge cases may not be handled yet
+- 🐛 Bugs are expected — please report them!
+
+**The best way to help:** Use Vajra daily and [report any issues](https://github.com/msmayanksingh22/Vajra-Download-Manager/issues/new) you encounter. Every bug report makes Vajra better for everyone.
 
 ---
 

@@ -1,8 +1,0 @@
-﻿cargo :     Checking vajra-ui-tauri v0.2.0 (D:\Project\Project-Vajra\vajra-ui-tauri\src-tauri)
-At line:1 char:1
-+ cargo clippy --workspace -- -D warnings 2>&1 | Out-File -FilePath "cl ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (    Checking va...auri\src-tauri):String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.24s

@@ -104,21 +104,68 @@ jobs:
           TARGET: ${{ matrix.rust_target }}
         with:
           tagName: v__VERSION__
-          releaseName: "Vajra v__VERSION__ (Beta)"
+          releaseName: "Vajra v__VERSION__ — Public Beta"
           releaseBody: |
-            ## Vajra Download Manager — Beta Release
+            <div align="center">
+              <h2>⚡ Vajra Download Manager v__VERSION__ — Public Beta</h2>
+              <p><strong>The high-performance, open-source download manager built in Rust + Tauri.</strong></p>
+            </div>
 
-            > ⚠️ This is a **beta** release. Features may be incomplete or change.
+            > ⚠️ **Beta Release** — Core features are stable and ready for daily use. Some edge cases may not be handled yet. Please [report any bugs](https://github.com/msmayanksingh22/Vajra-Download-Manager/issues/new) you encounter!
 
-            ### Download the installer for your platform:
-            - **Windows**: `Vajra_*_x64-setup.exe` (NSIS) or `Vajra_*_x64_en-US.msi`
-            - **macOS**: `Vajra_*.dmg`
-            - **Linux**: `vajra_*_amd64.deb` or `.AppImage`
+            ---
 
-            See [CHANGELOG](https://github.com/msmayanksingh22/Vajra-Download-Manager/blob/main/CHANGELOG.md) for what's new.
+            ## 🚀 What Is Vajra?
+
+            Vajra replaces your browser's slow, single-connection downloader with a **parallel multi-segment engine** that saturates your full bandwidth. It includes a desktop GUI, browser extension, CLI, and a full REST API — all powered by a headless Rust daemon.
+
+            ---
+
+            ## ⬇️ Download the Right Installer
+
+            | Platform | File | Notes |
+            |:---|:---|:---|
+            | **Windows 10/11 (64-bit)** | `Vajra_*_x64-setup.exe` | Recommended — NSIS wizard installer |
+            | **Windows 10/11 (64-bit)** | `Vajra_*_x64_en-US.msi` | Alternative MSI format |
+            | **macOS Apple Silicon (M1/M2/M3)** | `Vajra_*_aarch64.dmg` | |
+            | **macOS Intel** | `Vajra_*_x64.dmg` | |
+            | **Linux Debian/Ubuntu** | `vajra_*_amd64.deb` | `sudo apt install ./vajra_*.deb` |
+            | **Linux (Universal)** | `Vajra_*_amd64.AppImage` | `chmod +x` then run |
+            | **Browser Extension** | `vajra-extension.zip` | Load unpacked in Chrome/Edge/Brave |
+
+            > **Windows SmartScreen warning?** Click "More info" → "Run anyway". This is a false positive for new open-source software.
+            > **macOS Gatekeeper warning?** Right-click the app → Open → Click "Open". Only needed once.
+
+            ---
+
+            ## ✨ Key Features in This Release
+
+            - ⚡ **Parallel multiplexing** — split downloads into up to 32 simultaneous segments
+            - 🧠 **Connection stealing** — idle threads automatically help the slowest segment
+            - 💾 **OS-level file pre-allocation** — no fragmentation, no "disk full" surprises
+            - 🚀 **Zero-copy memory-mapped I/O** — flat RAM usage even for huge files
+            - 🔒 **VPN Kill Switch** — pauses all downloads if your VPN interface drops
+            - 🌐 **Chrome/Edge/Brave extension** — intercepts download links automatically
+            - 💻 **CLI** (`vajra get <URL>`) — fully scriptable from the terminal
+            - 🔌 **REST API** at `http://127.0.0.1:6277/api/v1` with Swagger UI
+            - 📋 **IDM `.ef2` import** — migrate your existing download lists
+
+            ---
+
+            ## 📖 Full Documentation
+
+            See the **[README](https://github.com/msmayanksingh22/Vajra-Download-Manager#readme)** for complete installation instructions, CLI reference, and API docs.
+            See the **[CHANGELOG](https://github.com/msmayanksingh22/Vajra-Download-Manager/blob/main/CHANGELOG.md)** for what's new in this version.
+
+            ---
+
+            ## 🐛 Found a Bug?
+
+            Please [open an issue](https://github.com/msmayanksingh22/Vajra-Download-Manager/issues/new) — it helps everyone!
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}
           projectPath: "vajra-ui-tauri"
           # Skip the beforeBuildCommand since we already built the sidecar above
           # tauri-action will still run npm run build (vite) for the frontend
+

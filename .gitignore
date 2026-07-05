@@ -36,13 +36,13 @@ daemon.log
 config_out.txt
 downloads/
 
-# Clippy/lint output artifacts
-clipy_err.txt
-clipy_out.txt
-clipy_output.txt
-clipy*.txt
+# Clippy/lint output artifacts (fixed typo: was "clipy_")
+clippy_err.txt
+clippy_out.txt
+clippy_output.txt
+clippy*.txt
 
-# One-off dev scripts at root
+# Icon generation helper script (not needed for building)
 generate_icons.mjs
 
 # Internal AI planning docs
@@ -121,4 +121,3 @@ Thumbs.db
 # Tauri mobile build artifacts
 gen/android/
 gen/ios/
-*.bat
