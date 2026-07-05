@@ -1,6 +1,7 @@
 [package]
 name = "vajra-ui-tauri"
-version = "0.2.0"
+version = "0.2.1"
+
 description = "Vajra Download Manager"
 authors = ["Vajra"]
 edition = "2021"
