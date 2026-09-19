@@ -171,8 +171,8 @@ async fn main() -> anyhow::Result<()> {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
             interval.tick().await;
-            let all = manager_clone.all_progress().await;
-            let aggregate_speed: u64 = all.iter().map(|p| p.speed_bps).sum();
+            let active = manager_clone.active_progress().await;
+            let aggregate_speed: u64 = active.iter().map(|p| p.speed_bps).sum();
             speed_tracker.add_sample(aggregate_speed).await;
         }
     });
@@ -448,158 +448,168 @@ async fn progress_loop(state: Arc<AppState>) {
     let mut last_states: std::collections::HashMap<uuid::Uuid, TaskState> =
         std::collections::HashMap::new();
     let mut queue_was_active = false;
+    let mut tick_count = 0u64;
 
     loop {
         interval.tick().await;
-        let all = state.manager.all_progress().await;
+        tick_count += 1;
 
-        let has_active = all.iter().any(|p| {
-            matches!(
-                p.state,
-                TaskState::Downloading
-                    | TaskState::Allocating
-                    | TaskState::FetchingMeta
-                    | TaskState::Queued
-            )
-        });
+        let all = if tick_count % 5 == 0 {
+            Some(state.manager.all_progress().await)
+        } else {
+            None
+        };
 
-        if has_active {
-            queue_was_active = true;
-        } else if queue_was_active {
-            queue_was_active = false;
-            let action = state.config.read().await.post_queue_action.clone();
-            if action != vajra_protocol::PostQueueAction::None {
-                execute_post_queue_action(&action, &state);
-            }
-        }
+        if let Some(all) = &all {
+            let has_active = all.iter().any(|p| {
+                matches!(
+                    p.state,
+                    TaskState::Downloading
+                        | TaskState::Allocating
+                        | TaskState::FetchingMeta
+                        | TaskState::Queued
+                )
+            });
 
-        let mut changed_tasks = Vec::new();
-        // FIX: Scope the database lock to only the DB operations.
-        // Drop it before the SSE broadcast so API endpoints are never blocked.
-        {
-            let db = state.database.lock().await;
-
-            for p in &all {
-                let prev_state = last_states.get(&p.id);
-                let state_changed = prev_state.map(|s| *s != p.state).unwrap_or(true);
-
-                if state_changed {
-                    changed_tasks.push(p.clone());
-
-                    let status_str = api::schema::state_str(&p.state);
-                    let _ = db.update_job_state(&p.id.to_string(), status_str);
-
-                    // Persist completed downloads to history
-                    if p.state == TaskState::Completed {
-                        let _ = db.insert_history(&HistoryEntry {
-                            id: p.id.to_string(),
-                            url: p.url.clone(),
-                            filename: p.filename.clone(),
-                            dest_path: p.dest_path.clone(),
-                            total_bytes: p.total_bytes,
-                            speed_avg_bps: p.speed_bps,
-                            status: "complete".to_string(),
-                            completed_at: Utc::now(),
-                            tags: p.tags.clone(),
-                        });
-                    }
+            if has_active {
+                queue_was_active = true;
+            } else if queue_was_active {
+                queue_was_active = false;
+                let action = state.config.read().await.post_queue_action.clone();
+                if action != vajra_protocol::PostQueueAction::None {
+                    execute_post_queue_action(&action, &state);
                 }
             }
-        } // ← DB lock released here
 
-        // Phase 2: SSE broadcast (no lock held)
-        for p in changed_tasks {
-            last_states.insert(p.id, p.state.clone());
+            let mut changed_tasks = Vec::new();
+            // FIX: Scope the database lock to only the DB operations.
+            // Drop it before the SSE broadcast so API endpoints are never blocked.
+            {
+                let db = state.database.lock().await;
 
-            // Play Asterisk completion sound & run AV scan
-            if p.state == TaskState::Completed {
-                let (play_sound, av_scan_path, av_scan_args) = {
-                    let cfg = state.config.read().await;
-                    (
-                        cfg.sound_on_complete,
-                        cfg.av_scan_path.clone(),
-                        cfg.av_scan_args.clone(),
-                    )
-                };
+                for p in all {
+                    let prev_state = last_states.get(&p.id);
+                    let state_changed = prev_state.map(|s| *s != p.state).unwrap_or(true);
 
-                if play_sound {
-                    #[cfg(target_os = "windows")]
-                    {
-                        use windows::Win32::{
-                            System::Diagnostics::Debug::MessageBeep,
-                            UI::WindowsAndMessaging::MESSAGEBOX_STYLE,
-                        };
-                        unsafe {
-                            let _ = MessageBeep(MESSAGEBOX_STYLE(0x00000040));
-                            // MB_ICONASTERISK
+                    if state_changed {
+                        changed_tasks.push(p.clone());
+
+                        let status_str = api::schema::state_str(&p.state);
+                        let _ = db.update_job_state(&p.id.to_string(), status_str);
+
+                        // Persist completed downloads to history
+                        if p.state == TaskState::Completed {
+                            let _ = db.insert_history(&HistoryEntry {
+                                id: p.id.to_string(),
+                                url: p.url.clone(),
+                                filename: p.filename.clone(),
+                                dest_path: p.dest_path.clone(),
+                                total_bytes: p.total_bytes,
+                                speed_avg_bps: p.speed_bps,
+                                status: "complete".to_string(),
+                                completed_at: Utc::now(),
+                                tags: p.tags.clone(),
+                            });
+                        }
+                    }
+                }
+            } // ← DB lock released here
+
+            // Phase 2: SSE broadcast (no lock held)
+            for p in changed_tasks {
+                last_states.insert(p.id, p.state.clone());
+
+                // Play Asterisk completion sound & run AV scan
+                if p.state == TaskState::Completed {
+                    let (play_sound, av_scan_path, av_scan_args) = {
+                        let cfg = state.config.read().await;
+                        (
+                            cfg.sound_on_complete,
+                            cfg.av_scan_path.clone(),
+                            cfg.av_scan_args.clone(),
+                        )
+                    };
+
+                    if play_sound {
+                        #[cfg(target_os = "windows")]
+                        {
+                            use windows::Win32::{
+                                System::Diagnostics::Debug::MessageBeep,
+                                UI::WindowsAndMessaging::MESSAGEBOX_STYLE,
+                            };
+                            unsafe {
+                                let _ = MessageBeep(MESSAGEBOX_STYLE(0x00000040));
+                                // MB_ICONASTERISK
+                            }
+                        }
+                    }
+
+                    if let Some(av_path) = av_scan_path {
+                        if !av_path.is_empty() {
+                            let file_path = p.dest_path.clone();
+                            tokio::spawn(async move {
+                                let mut cmd = tokio::process::Command::new(av_path);
+                                cmd.stdin(std::process::Stdio::null());
+                                let mut has_file_placeholder = false;
+                                for arg in &av_scan_args {
+                                    if arg == "%file%" {
+                                        cmd.arg(&file_path);
+                                        has_file_placeholder = true;
+                                    } else {
+                                        cmd.arg(arg);
+                                    }
+                                }
+                                if !has_file_placeholder {
+                                    cmd.arg(&file_path);
+                                }
+
+                                #[cfg(target_os = "windows")]
+                                {
+                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                                }
+
+                                match cmd.output().await {
+                                    Ok(output) => {
+                                        tracing::info!(
+                                            "AV Scan completed. Status success: {}",
+                                            output.status.success()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Failed to launch AV scanner: {}", e);
+                                    }
+                                }
+                            });
                         }
                     }
                 }
 
-                if let Some(av_path) = av_scan_path {
-                    if !av_path.is_empty() {
-                        let file_path = p.dest_path.clone();
-                        tokio::spawn(async move {
-                            let mut cmd = tokio::process::Command::new(av_path);
-                            cmd.stdin(std::process::Stdio::null());
-                            let mut has_file_placeholder = false;
-                            for arg in &av_scan_args {
-                                if arg == "%file%" {
-                                    cmd.arg(&file_path);
-                                    has_file_placeholder = true;
-                                } else {
-                                    cmd.arg(arg);
-                                }
-                            }
-                            if !has_file_placeholder {
-                                cmd.arg(&file_path);
-                            }
-
-                            #[cfg(target_os = "windows")]
-                            {
-                                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-                            }
-
-                            match cmd.output().await {
-                                Ok(output) => {
-                                    tracing::info!(
-                                        "AV Scan completed. Status success: {}",
-                                        output.status.success()
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to launch AV scanner: {}", e);
-                                }
-                            }
-                        });
-                    }
+                // Broadcast state changes for terminal or downloading states
+                if matches!(
+                    p.state,
+                    TaskState::Completed
+                        | TaskState::Failed
+                        | TaskState::Cancelled
+                        | TaskState::Paused
+                        | TaskState::Downloading
+                ) {
+                    state.sse.send(vajra_protocol::DaemonEvent::StateChange {
+                        id: p.id,
+                        status: api::schema::state_to_status(&p.state),
+                        output_path: if p.dest_path.is_empty() {
+                            None
+                        } else {
+                            Some(p.dest_path.clone())
+                        },
+                        error: p.error.clone(),
+                    });
                 }
-            }
-
-            // Broadcast state changes for terminal or downloading states
-            if matches!(
-                p.state,
-                TaskState::Completed
-                    | TaskState::Failed
-                    | TaskState::Cancelled
-                    | TaskState::Paused
-                    | TaskState::Downloading
-            ) {
-                state.sse.send(vajra_protocol::DaemonEvent::StateChange {
-                    id: p.id,
-                    status: api::schema::state_to_status(&p.state),
-                    output_path: if p.dest_path.is_empty() {
-                        None
-                    } else {
-                        Some(p.dest_path.clone())
-                    },
-                    error: p.error.clone(),
-                });
             }
         }
 
+        let active = state.manager.active_progress().await;
         let mut batch_items = Vec::new();
-        for p in &all {
+        for p in &active {
             if matches!(
                 p.state,
                 TaskState::Downloading | TaskState::Allocating | TaskState::FetchingMeta

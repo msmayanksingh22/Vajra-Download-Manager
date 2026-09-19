@@ -447,6 +447,20 @@ impl DownloadManager {
             .collect()
     }
 
+    /// Get progress only for active tasks (e.g. downloading, allocating, fetching meta)
+    pub async fn active_progress(&self) -> Vec<DownloadProgress> {
+        let entries = self.entries.read().await;
+        entries
+            .values()
+            .filter(|entry| entry.task.is_some())
+            .map(|entry| {
+                let mut p = entry.task.as_ref().unwrap().progress();
+                p.speed_limit_bps = entry.request.speed_limit;
+                p
+            })
+            .collect()
+    }
+
     /// Get progress for a single download.
     pub async fn progress(&self, id: TaskId) -> Option<DownloadProgress> {
         let entries = self.entries.read().await;

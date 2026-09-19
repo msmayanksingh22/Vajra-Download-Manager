@@ -9,7 +9,8 @@ pnpm-debug.log*
 node_modules/
 
 # Build output
-dist/
+dist/*
+!dist/windows/
 dist-ssr/
 *.local
 
@@ -26,7 +27,8 @@ target_build/
 *.rlib
 
 # Tauri / Cargo generated
-.cargo/
+.cargo/*
+!.cargo/config.toml
 
 # Runtime data (user-specific, not source)
 vajra.db
@@ -42,12 +44,13 @@ clippy_out.txt
 clippy_output.txt
 clippy*.txt
 
-# Icon generation helper script (not needed for building)
-generate_icons.mjs
+# Icon generation helper script (tracked)
+# generate_icons.mjs
 
-# Internal AI planning docs — ignore everything EXCEPT screenshots
+# Internal docs & screenshots (markdown manuals & screenshots tracked)
 docs/*
 !docs/screenshots/
+!docs/*.md
 
 
 # Test artifacts
@@ -78,8 +81,6 @@ test.json
 headers.json
 
 # AI IDE directories (not relevant to contributors)
-.agent/
-.agents/
 .gemini/
 .claude/
 .mcp.json
@@ -92,7 +93,7 @@ graphify-out/
 IDM-Images/
 instruct.txt
 ard.txt
-openspec/
+# openspec/ (tracked)
 
 # Installer artifacts (binaries — source files like .wxs, .ps1 are kept)
 installer/*.msi

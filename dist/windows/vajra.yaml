@@ -1,0 +1,13 @@
+PackageIdentifier: ms-mayank.Vajra
+PackageVersion: "0.1.0"
+PackageName: Vajra
+Publisher: ms-mayank
+License: MIT
+ShortDescription: High-performance, multiplexed download manager daemon with Tauri UI.
+Installers:
+  - Architecture: x64
+    InstallerType: nullsoft
+    InstallerUrl: https://github.com/msmayanksingh22/Vajra/releases/download/v0.1.0/Vajra-Setup.exe
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+ManifestType: singleton
+ManifestVersion: 1.2.0

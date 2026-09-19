@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>vajra</id>
+    <version>0.1.0</version>
+    <title>Vajra Download Manager</title>
+    <authors>msmayanksingh22</authors>
+    <projectUrl>https://github.com/msmayanksingh22/Vajra</projectUrl>
+    <tags>download manager axum rust daemon tauri</tags>
+    <summary>High-performance, multiplexed download manager daemon with Tauri UI</summary>
+    <description>Vajra is a highly concurrent, memory-safe download manager built in Rust. It multiplexes chunked connections, handles proxy rotation, supports WebDAV serving, and seamlessly monitors the clipboard.</description>
+    <dependencies>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="..\..\target\release\vajrad.exe" target="tools" />
+    <file src="..\..\target\release\vajra-ui.exe" target="tools" />
+  </files>
+</package>
