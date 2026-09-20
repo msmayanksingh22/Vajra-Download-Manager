@@ -68,6 +68,8 @@ pub struct StealRequest {
 pub struct Chunk {
     /// Zero-based sequential index assigned during [`calculate_chunks`].
     pub id: usize,
+    /// Immutable original start byte of the segment.
+    pub original_start_byte: u64,
     /// Inclusive start offset within the remote file.
     pub start_byte: u64,
     /// Inclusive end offset within the remote file.
@@ -128,6 +130,20 @@ pub struct DownloadHandle {
 
     /// Shared, lock-guarded chunk registry.  Poll this to build a progress UI.
     pub chunks: Arc<Mutex<Vec<Chunk>>>,
+
+    /// Abort handles for all spawned worker tasks.
+    pub abort_handles: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
+}
+
+impl DownloadHandle {
+    /// Abort all worker tasks cooperatively and deterministically.
+    pub fn abort_all(&self) {
+        if let Ok(handles) = self.abort_handles.lock() {
+            for h in handles.iter() {
+                h.abort();
+            }
+        }
+    }
 }
 
 // ─── Pure boundary calculation ────────────────────────────────────────────────
@@ -182,6 +198,7 @@ pub fn calculate_chunks(
         let size = base + if (i as u64) < remainder { 1 } else { 0 };
         chunks.push(Chunk {
             id: i,
+            original_start_byte: offset,
             start_byte: offset,
             end_byte: offset + size - 1, // inclusive
             ranged: true,
@@ -235,10 +252,11 @@ pub async fn steal_from_slowest(shared: &Arc<Mutex<Vec<Chunk>>>) -> Option<Chunk
 
     if let Ok(Some((midpoint, original_end_byte))) = response_rx.await {
         let mut guard = shared.lock().await;
-        let new_id = guard.len();
+        let new_id = guard.iter().map(|c| c.id).max().map(|m| m + 1).unwrap_or(0);
         // Create the new chunk for the stolen part (midpoint → original end)
         let new_chunk = Chunk {
             id: new_id,
+            original_start_byte: midpoint,
             start_byte: midpoint,
             end_byte: original_end_byte,
             ranged: true,
@@ -279,15 +297,21 @@ pub fn start_download(
 ) -> DownloadHandle {
     let shared = Arc::new(Mutex::new(initial_chunks.clone()));
     let (tx, rx) = mpsc::channel::<Result<ChunkPayload, MultiplexerError>>(channel_capacity);
+    let abort_handles = Arc::new(std::sync::Mutex::new(Vec::with_capacity(
+        initial_chunks.len(),
+    )));
 
     let client_shared = Arc::new(client);
     for chunk_snapshot in initial_chunks {
+        if chunk_snapshot.status == ChunkStatus::Completed {
+            continue;
+        }
         let client = Arc::clone(&client_shared);
         let mirror_manager = Arc::clone(&mirror_manager);
         let tx = tx.clone();
         let shared = Arc::clone(&shared);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut current_chunk = chunk_snapshot;
             loop {
                 // ── 1. Mark as Connecting ────────────────────────────────────
@@ -321,6 +345,10 @@ pub fn start_download(
                 break; // No more work to steal, terminate this worker.
             }
         });
+
+        if let Ok(mut guard) = abort_handles.lock() {
+            guard.push(handle.abort_handle());
+        }
     }
 
     // The original `tx` is dropped here; channel closes when all task clones
@@ -328,6 +356,7 @@ pub fn start_download(
     DownloadHandle {
         receiver: rx,
         chunks: shared,
+        abort_handles,
     }
 }
 
@@ -687,6 +716,7 @@ mod tests {
     fn range_header_format_is_correct() {
         let chunk = Chunk {
             id: 0,
+            original_start_byte: 0,
             start_byte: 0,
             end_byte: 1_048_575,
             ranged: true,
@@ -704,6 +734,7 @@ mod tests {
     fn range_header_mid_chunk() {
         let chunk = Chunk {
             id: 3,
+            original_start_byte: 3_145_728,
             start_byte: 3_145_728,
             end_byte: 4_194_303,
             ranged: true,

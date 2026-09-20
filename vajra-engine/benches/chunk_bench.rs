@@ -64,6 +64,7 @@ fn bench_chunk_merge(c: &mut Criterion) {
                 let payload = Bytes::from(vec![0u8; frame_len as usize]);
 
                 tx.send(DataFrame {
+                    chunk_id: 0,
                     absolute_offset: offset,
                     payload,
                 })

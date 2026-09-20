@@ -41,6 +41,9 @@ use tokio::sync::mpsc;
 /// order and will always land at the correct file position.
 #[derive(Debug)]
 pub struct DataFrame {
+    /// ID of the chunk to which this frame belongs.
+    pub chunk_id: usize,
+
     /// Byte offset *from the start of the file* at which `payload` must be
     /// written.  This value is calculated by the multiplexer's chunk-boundary
     /// algorithm and must be honoured exactly.
@@ -59,6 +62,8 @@ pub struct WriterStats {
     pub frames_received: u64,
     /// Total payload bytes actually written to disk (empty frames excluded).
     pub bytes_written: u64,
+    /// Per-chunk payload bytes successfully committed to disk.
+    pub chunk_bytes_written: std::collections::HashMap<usize, u64>,
 }
 
 pub struct WriteTracker {
@@ -327,6 +332,7 @@ pub async fn start_disk_writer(
         }
 
         stats.bytes_written += byte_count;
+        *stats.chunk_bytes_written.entry(frame.chunk_id).or_insert(0) += byte_count;
     }
 
     if let Some(ref mmap) = mmap_handle {
@@ -478,6 +484,7 @@ mod tests {
 
         // Send the payload in three out-of-order fragments.
         tx.send(DataFrame {
+            chunk_id: 0,
             absolute_offset: 16,
             payload: Bytes::from_static(&content[16..32]),
         })
@@ -485,6 +492,7 @@ mod tests {
         .unwrap();
 
         tx.send(DataFrame {
+            chunk_id: 0,
             absolute_offset: 0,
             payload: Bytes::from_static(&content[0..16]),
         })
@@ -492,6 +500,7 @@ mod tests {
         .unwrap();
 
         tx.send(DataFrame {
+            chunk_id: 0,
             absolute_offset: 32,
             payload: Bytes::copy_from_slice(&content[32..]),
         })
@@ -518,6 +527,7 @@ mod tests {
 
         // Two empty frames bookending one real frame.
         tx.send(DataFrame {
+            chunk_id: 0,
             absolute_offset: 0,
             payload: Bytes::new(),
         })
@@ -525,6 +535,7 @@ mod tests {
         .unwrap();
 
         tx.send(DataFrame {
+            chunk_id: 0,
             absolute_offset: 0,
             payload: Bytes::from_static(b"DATA"),
         })
@@ -532,6 +543,7 @@ mod tests {
         .unwrap();
 
         tx.send(DataFrame {
+            chunk_id: 0,
             absolute_offset: 4,
             payload: Bytes::new(),
         })
@@ -578,6 +590,7 @@ mod tests {
 
         let (tx, rx) = mpsc::channel::<DataFrame>(1);
         tx.send(DataFrame {
+            chunk_id: 0,
             absolute_offset: 0,
             payload: Bytes::from(payload.clone()),
         })

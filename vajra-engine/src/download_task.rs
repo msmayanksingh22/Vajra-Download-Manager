@@ -12,7 +12,10 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -498,7 +501,8 @@ async fn run_download(
                 };
 
                 if let Some(hash) = computed_hash {
-                    if let Ok(db) = crate::db::Database::open(&vajra_protocol::db_path()) {
+                    let db_target = vajra_protocol::db_path();
+                    if let Ok(db) = crate::db::Database::open(&db_target) {
                         let size = std::fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0);
                         let _ = db.save_file_hash(&p.dest_path, &hash, size);
 
@@ -713,6 +717,15 @@ async fn download_inner(
 
     let db = crate::db::Database::open(&vajra_protocol::db_path())
         .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))?;
+
+    // Ensure parent job record exists in SQLite so foreign key constraints on download_segments succeed
+    let _ = db.upsert_job(&crate::db::JobRecord {
+        id: id.to_string(),
+        request_json: serde_json::to_string(&req).unwrap_or_default(),
+        state: "downloading".to_string(),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    });
 
     let cached_url = db.load_redirect(&id.to_string()).ok().flatten();
     let mut target_url = cached_url.clone().unwrap_or_else(|| req.url.clone());
@@ -977,16 +990,20 @@ async fn download_inner(
         // Resume from explicitly saved chunks
         saved_segments
             .iter()
-            .map(|c| crate::multiplexer::Chunk {
-                id: c.chunk_id,
-                start_byte: c.start_byte.unwrap_or(0),
-                end_byte: c.end_byte.unwrap_or(total_bytes.saturating_sub(1)),
-                ranged: accepts_ranges,
-                status: crate::multiplexer::ChunkStatus::Pending,
-                retry_count: 0,
-                error_message: None,
-                current_offset: c.bytes_written,
-                steal_tx: None,
+            .map(|c| {
+                let original_start = c.start_byte.unwrap_or(0);
+                crate::multiplexer::Chunk {
+                    id: c.chunk_id,
+                    original_start_byte: original_start,
+                    start_byte: original_start,
+                    end_byte: c.end_byte.unwrap_or(total_bytes.saturating_sub(1)),
+                    ranged: accepts_ranges,
+                    status: crate::multiplexer::ChunkStatus::Pending,
+                    retry_count: 0,
+                    error_message: None,
+                    current_offset: c.bytes_written,
+                    steal_tx: None,
+                }
             })
             .collect::<Vec<_>>()
     } else if accepts_ranges && total_bytes > 0 {
@@ -995,6 +1012,7 @@ async fn download_inner(
         // Single-stream fallback
         vec![crate::multiplexer::Chunk {
             id: 0,
+            original_start_byte: 0,
             start_byte: 0,
             end_byte: if total_bytes > 0 {
                 total_bytes.saturating_sub(1)
@@ -1012,36 +1030,47 @@ async fn download_inner(
 
     let num_chunks = chunks.len();
 
-    let resumed_bytes: Vec<u64> = chunks
+    let resumed_bytes: HashMap<usize, u64> = chunks
         .iter()
         .map(|chunk| {
-            let chunk_size = chunk.end_byte - chunk.start_byte + 1;
-            saved_segments
+            let chunk_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
+            let written = saved_segments
                 .iter()
                 .find(|p| p.chunk_id == chunk.id)
                 .map(|progress| progress.bytes_written.min(chunk_size))
-                .unwrap_or(0)
+                .unwrap_or(0);
+            (chunk.id, written)
         })
         .collect();
 
-    let already_downloaded: u64 = resumed_bytes.iter().sum();
+    let already_downloaded: u64 = resumed_bytes.values().sum();
 
-    let pending_chunks: Vec<_> = chunks
+    let all_chunks: Vec<_> = chunks
         .iter()
-        .filter_map(|chunk| {
-            let resume_offset = resumed_bytes.get(chunk.id).copied().unwrap_or(0);
-            let next_start = chunk.start_byte + resume_offset;
-            (next_start <= chunk.end_byte).then_some(crate::multiplexer::Chunk {
+        .map(|chunk| {
+            let resume_offset = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
+            let next_start = chunk.original_start_byte + resume_offset;
+            let is_completed = next_start > chunk.end_byte;
+            crate::multiplexer::Chunk {
                 id: chunk.id,
-                start_byte: next_start,
+                original_start_byte: chunk.original_start_byte,
+                start_byte: if is_completed {
+                    chunk.end_byte.saturating_add(1)
+                } else {
+                    next_start
+                },
                 end_byte: chunk.end_byte,
                 ranged: chunk.ranged,
-                status: crate::multiplexer::ChunkStatus::Pending,
+                status: if is_completed {
+                    crate::multiplexer::ChunkStatus::Completed
+                } else {
+                    crate::multiplexer::ChunkStatus::Pending
+                },
                 retry_count: 0,
                 error_message: None,
                 current_offset: 0,
                 steal_tx: None,
-            })
+            }
         })
         .collect();
 
@@ -1050,11 +1079,11 @@ async fn download_inner(
         .enumerate()
         .map(|(index, chunk)| {
             let chunk_size = if total_bytes > 0 {
-                chunk.end_byte - chunk.start_byte + 1
+                chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1
             } else {
                 0
             };
-            let bytes_done = resumed_bytes[index];
+            let bytes_done = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
             let status = if bytes_done >= chunk_size && total_bytes > 0 {
                 vajra_protocol::DownloadStatus::Completed
             } else {
@@ -1062,7 +1091,7 @@ async fn download_inner(
             };
             vajra_protocol::SegmentInfo {
                 id: chunk.id,
-                start: chunk.start_byte,
+                start: chunk.original_start_byte,
                 end: chunk.end_byte,
                 bytes_done,
                 allocated_bytes: chunk_size,
@@ -1096,13 +1125,19 @@ async fn download_inner(
     let mux_handle = start_download(
         primary_client,
         mirror_manager,
-        pending_chunks,
+        all_chunks,
         DEFAULT_CHANNEL_CAPACITY,
     );
-    let mut mux_rx = mux_handle.receiver;
+    let crate::multiplexer::DownloadHandle {
+        receiver: mut mux_rx,
+        chunks: mux_chunks,
+        abort_handles: mux_abort_handles,
+    } = mux_handle;
 
     // ── Bridge task (mux → writer) with RAM-buffered I/O (Phase 3C) ──────
     let chunk_bytes_bridge = Arc::clone(&chunk_bytes);
+    let drain_now = Arc::new(AtomicBool::new(false));
+    let drain_now_bridge = Arc::clone(&drain_now);
     let throttle = req
         .throttle
         .clone()
@@ -1122,6 +1157,7 @@ async fn download_inner(
             if let Some((offset, data)) = buf_map.remove(&chunk_id) {
                 if !data.is_empty() {
                     let frame = DataFrame {
+                        chunk_id,
                         absolute_offset: offset,
                         payload: bytes::Bytes::from(data),
                     };
@@ -1155,8 +1191,10 @@ async fn download_inner(
 
                     let len = payload.data.len() as u64;
 
-                    // Token-bucket throttle
-                    throttle.acquire(len).await;
+                    // Token-bucket throttle (bypassed during pause drain)
+                    if !drain_now_bridge.load(Ordering::Relaxed) {
+                        throttle.acquire(len).await;
+                    }
 
                     // Accumulate into RAM buffer
                     let entry = buf_map.entry(payload.chunk_id).or_insert_with(|| (payload.absolute_offset, Vec::new()));
@@ -1224,11 +1262,11 @@ async fn download_inner(
                     0.0
                 };
 
-                let active_chunks = mux_handle.chunks.lock().await;
+                let active_chunks = mux_chunks.lock().await;
                 let chunk_fractions: Vec<f64> = active_chunks.iter().map(|chunk| {
                     let remaining_size = chunk.end_byte.saturating_sub(chunk.start_byte) + 1;
                     let session_bytes = guard.get(chunk.id).copied().unwrap_or(0);
-                    let initial_bytes = if chunk.id < resumed_bytes.len() { resumed_bytes[chunk.id] } else { 0 };
+                    let initial_bytes = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
                     let original_size = remaining_size + initial_bytes;
                     let bytes_done = initial_bytes + session_bytes;
 
@@ -1246,15 +1284,14 @@ async fn download_inner(
                     let session_bytes = guard.get(chunk.id).copied().unwrap_or(0);
                     segment_speed_windows[chunk.id].update(session_bytes)
                 }).collect();
-                drop(guard);
 
                 let segments: Vec<vajra_protocol::SegmentInfo> = active_chunks.iter().enumerate().map(|(index, chunk)| {
-                    let remaining_size = chunk.end_byte.saturating_sub(chunk.start_byte) + 1;
-                    let initial_bytes = if chunk.id < resumed_bytes.len() { resumed_bytes[chunk.id] } else { 0 };
-                    let original_size = remaining_size + initial_bytes;
-                    let bytes_done = (chunk_fractions[index] * original_size as f64) as u64;
+                    let chunk_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
+                    let initial_bytes = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
+                    let session_bytes = guard.get(chunk.id).copied().unwrap_or(0);
+                    let bytes_done = initial_bytes.saturating_add(session_bytes).min(chunk_size);
 
-                    let (status, retry_count, error_message) = if bytes_done >= original_size && total_bytes > 0 {
+                    let (status, retry_count, error_message) = if bytes_done >= chunk_size && total_bytes > 0 {
                         (vajra_protocol::DownloadStatus::Completed, 0, None)
                     } else {
                         let status = match &chunk.status {
@@ -1269,10 +1306,10 @@ async fn download_inner(
 
                     vajra_protocol::SegmentInfo {
                         id: chunk.id,
-                        start: chunk.start_byte.saturating_sub(initial_bytes),
+                        start: chunk.original_start_byte,
                         end: chunk.end_byte,
                         bytes_done,
-                        allocated_bytes: original_size,
+                        allocated_bytes: chunk_size,
                         speed_bps: Some(segment_speeds[index]),
                         status,
                         thread_index: 0,
@@ -1280,6 +1317,7 @@ async fn download_inner(
                         error_message,
                     }
                 }).collect();
+                drop(guard);
                 drop(active_chunks);
 
                 emit(tx, id, |p| {
@@ -1300,32 +1338,73 @@ async fn download_inner(
             signal = &mut *ctrl => {
                 match signal {
                     Ok(ControlSignal::Pause) => {
-                        // Save state and abort
-                        let guard = chunk_bytes.read().await;
-                        let active_chunks = mux_handle.chunks.lock().await;
+                        // 1. Signal bridge to drain remaining frames without throttling
+                        drain_now.store(true, Ordering::SeqCst);
+
+                        // 2. Stop accepting new network data: cancel all worker HTTP tasks
+                        if let Ok(handles) = mux_abort_handles.lock() {
+                            for h in handles.iter() {
+                                h.abort();
+                            }
+                        }
+
+                        // 3. Await bridge to drain any in-flight frames in mux_rx,
+                        // flush all accumulated per-chunk buffers (buf_map) to writer_tx,
+                        // and terminate cleanly.
+                        let _ = bridge.await;
+
+                        // 4. Dropping bridge dropped its writer_tx.
+                        // start_disk_writer in writer_fut will drain writer_rx,
+                        // write all frames to disk, sync/flush, and return Ok(WriterStats).
+                        let writer_stats = writer_fut.await.ok().and_then(|r| r.ok());
+
+                        // 5. Update SQLite segments with STRICTLY writer-confirmed bytes
+                        let active_chunks = mux_chunks.lock().await;
+                        let mut total_confirmed_written = 0_u64;
+
                         for chunk in active_chunks.iter() {
-                            let session = guard.get(chunk.id).copied().unwrap_or(0);
-                            let initial = if chunk.id < resumed_bytes.len() {
-                                resumed_bytes[chunk.id]
-                            } else {
-                                0
-                            };
-                            let written = initial + session;
+                            let session_written = writer_stats
+                                .as_ref()
+                                .and_then(|s| s.chunk_bytes_written.get(&chunk.id).copied())
+                                .unwrap_or(0);
+
+                            let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
+
+                            let total_chunk_written = initial_written.saturating_add(session_written);
+                            total_confirmed_written = total_confirmed_written.saturating_add(total_chunk_written);
+
                             let _ = db.save_segment(
                                 &id.to_string(),
                                 chunk.id,
-                                chunk.start_byte,
+                                chunk.original_start_byte,
                                 chunk.end_byte,
-                                written,
+                                total_chunk_written,
                             );
                         }
+
+                        // Also account for any chunks that were already complete before this session
+                        for chunk in chunks.iter() {
+                            if !active_chunks.iter().any(|ac| ac.id == chunk.id) {
+                                let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
+                                total_confirmed_written = total_confirmed_written.saturating_add(initial_written);
+                            }
+                        }
                         drop(active_chunks);
-                        drop(guard);
-                        bridge.abort();
-                        writer_fut.abort();
+
+                        // 6. Update UI progress to strictly writer-confirmed progress
+                        emit(tx, id, |p| {
+                            p.bytes_downloaded = total_confirmed_written;
+                            p.state = TaskState::Paused;
+                        });
+
                         return Err(DownloadError::Paused.into());
                     }
                     Ok(ControlSignal::Cancel) => {
+                        if let Ok(handles) = mux_abort_handles.lock() {
+                            for h in handles.iter() {
+                                h.abort();
+                            }
+                        }
                         bridge.abort();
                         writer_fut.abort();
                         // Remove partial file

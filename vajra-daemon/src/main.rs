@@ -454,7 +454,7 @@ async fn progress_loop(state: Arc<AppState>) {
         interval.tick().await;
         tick_count += 1;
 
-        let all = if tick_count % 5 == 0 {
+        let all = if tick_count.is_multiple_of(5) {
             Some(state.manager.all_progress().await)
         } else {
             None

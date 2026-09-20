@@ -45,6 +45,9 @@ fn make_req(url: &str, priority: Priority) -> DownloadRequest {
 
 #[tokio::test]
 async fn test_manager_queue_ordering() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    std::env::set_var("VAJRA_DATA_DIR", temp_dir.path());
+
     let settings = QueueSettings {
         max_concurrent: 1, // Only process one at a time
         ..Default::default()
@@ -77,6 +80,9 @@ async fn test_manager_fap() {
 
 #[tokio::test]
 async fn test_manager_lifecycle() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    std::env::set_var("VAJRA_DATA_DIR", temp_dir.path());
+
     let settings = QueueSettings {
         max_concurrent: 2,
         ..Default::default()
