@@ -201,6 +201,8 @@ pub enum DownloadError {
     VirusDetected,
     #[error("Disk full")]
     DiskFull,
+    #[error("Incomplete download: {0}")]
+    IncompleteDownload(String),
     #[error("Multiplexer error: {0}")]
     Multiplexer(String),
     #[error("Other error: {0}")]
@@ -1330,6 +1332,13 @@ async fn download_inner(
                 });
 
                 // Check if both tasks finished
+                if bridge.is_finished() {
+                    if let Ok(handles) = mux_abort_handles.lock() {
+                        for h in handles.iter() {
+                            h.abort();
+                        }
+                    }
+                }
                 if bridge.is_finished() && writer_fut.is_finished() {
                     break;
                 }
@@ -1421,10 +1430,134 @@ async fn download_inner(
     }
 
     // Propagate any errors from bridge or writer
-    bridge.await??;
-    writer_fut.await??;
+    let bridge_res = bridge.await?;
+    let writer_res = writer_fut.await?;
 
-    // Clean up segment tracking on success
+    if let Err(e) = bridge_res {
+        let active_chunks = mux_chunks.lock().await;
+        if let Ok(ref stats) = writer_res {
+            for chunk in active_chunks.iter() {
+                let session_written = stats
+                    .chunk_bytes_written
+                    .get(&chunk.id)
+                    .copied()
+                    .unwrap_or(0);
+                let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
+                let _ = db.save_segment(
+                    &id.to_string(),
+                    chunk.id,
+                    chunk.original_start_byte,
+                    chunk.end_byte,
+                    initial_written.saturating_add(session_written),
+                );
+            }
+        }
+        return Err(e);
+    }
+    let writer_stats = writer_res?;
+
+    // ─── Final Completeness Verification ────────────────────────────────────────
+    let active_chunks = mux_chunks.lock().await;
+    let mut total_confirmed_written = 0_u64;
+
+    if total_bytes > 0 {
+        for chunk in active_chunks.iter() {
+            let session_written = writer_stats
+                .chunk_bytes_written
+                .get(&chunk.id)
+                .copied()
+                .unwrap_or(0);
+            let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
+            let total_chunk_written = initial_written.saturating_add(session_written);
+            total_confirmed_written = total_confirmed_written.saturating_add(total_chunk_written);
+
+            let expected_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
+            if total_chunk_written < expected_size {
+                // Persist latest confirmed written bytes so subsequent resume attempts are accurate
+                for c in active_chunks.iter() {
+                    let s_written = writer_stats
+                        .chunk_bytes_written
+                        .get(&c.id)
+                        .copied()
+                        .unwrap_or(0);
+                    let i_written = resumed_bytes.get(&c.id).copied().unwrap_or(0);
+                    let _ = db.save_segment(
+                        &id.to_string(),
+                        c.id,
+                        c.original_start_byte,
+                        c.end_byte,
+                        i_written.saturating_add(s_written),
+                    );
+                }
+                return Err(DownloadError::IncompleteDownload(format!(
+                    "Chunk {} incomplete: {}/{} bytes written",
+                    chunk.id, total_chunk_written, expected_size
+                ))
+                .into());
+            }
+        }
+
+        let mut sorted_chunks: Vec<_> = active_chunks.clone();
+        sorted_chunks.sort_by_key(|c| c.original_start_byte);
+
+        if sorted_chunks.is_empty() {
+            return Err(DownloadError::IncompleteDownload("No chunks registered".into()).into());
+        }
+
+        if sorted_chunks[0].original_start_byte != 0 {
+            return Err(DownloadError::IncompleteDownload(format!(
+                "First chunk does not start at 0 (starts at {})",
+                sorted_chunks[0].original_start_byte
+            ))
+            .into());
+        }
+
+        for i in 0..sorted_chunks.len() - 1 {
+            let curr_end = sorted_chunks[i].end_byte;
+            let next_start = sorted_chunks[i + 1].original_start_byte;
+            if curr_end + 1 != next_start {
+                return Err(DownloadError::IncompleteDownload(format!(
+                    "Uncovered range/hole between chunk {} (end {}) and chunk {} (start {})",
+                    sorted_chunks[i].id,
+                    curr_end,
+                    sorted_chunks[i + 1].id,
+                    next_start
+                ))
+                .into());
+            }
+        }
+
+        let last_end = sorted_chunks.last().unwrap().end_byte;
+        if last_end != total_bytes - 1 {
+            return Err(DownloadError::IncompleteDownload(format!(
+                "Last chunk ends at {}, expected {}",
+                last_end,
+                total_bytes - 1
+            ))
+            .into());
+        }
+
+        if total_confirmed_written != total_bytes {
+            return Err(DownloadError::IncompleteDownload(format!(
+                "Total confirmed written bytes ({}) does not match expected total size ({})",
+                total_confirmed_written, total_bytes
+            ))
+            .into());
+        }
+
+        // Sanity check: physical file size on disk
+        let disk_size = std::fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0);
+        if disk_size < total_bytes {
+            return Err(DownloadError::IncompleteDownload(format!(
+                "Physical file size on disk ({} bytes) is less than expected total size ({} bytes)",
+                disk_size, total_bytes
+            ))
+            .into());
+        }
+    }
+    drop(active_chunks);
+
+    // Clean up segment tracking in SQLite only after 100% verified completeness
     let _ = db.delete_segments(&id.to_string());
 
     let guard = chunk_bytes.read().await;

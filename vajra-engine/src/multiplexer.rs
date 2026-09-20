@@ -395,6 +395,50 @@ async fn set_current_offset(shared: &Arc<Mutex<Vec<Chunk>>>, id: usize, offset: 
     }
 }
 
+/// Parse a `Content-Range` header of the form:
+/// `bytes START-END/TOTAL` or `bytes START-END/*`
+pub fn parse_content_range(header_val: &str) -> Option<(u64, u64, Option<u64>)> {
+    let s = header_val.trim();
+    let rest = if s.len() >= 6 && s[..6].eq_ignore_ascii_case("bytes ") {
+        s[6..].trim_start()
+    } else {
+        return None;
+    };
+
+    let mut slash_parts = rest.split('/');
+    let range_part = slash_parts.next()?.trim();
+    let total_part = slash_parts.next()?.trim();
+
+    let mut dash_parts = range_part.split('-');
+    let start: u64 = dash_parts.next()?.trim().parse().ok()?;
+    let end: u64 = dash_parts.next()?.trim().parse().ok()?;
+
+    let total: Option<u64> = if total_part == "*" {
+        None
+    } else {
+        total_part.parse().ok()
+    };
+
+    Some((start, end, total))
+}
+
+/// Parse the total size from a Content-Range header when range is unsatisfiable (HTTP 416),
+/// e.g. `bytes */TOTAL` or `bytes */*`
+pub fn parse_content_range_total(header_val: &str) -> Option<u64> {
+    let s = header_val.trim();
+    let rest = if s.len() >= 6 && s[..6].eq_ignore_ascii_case("bytes ") {
+        s[6..].trim_start()
+    } else {
+        return None;
+    };
+    let total_part = rest.split('/').nth(1)?.trim();
+    if total_part == "*" {
+        None
+    } else {
+        total_part.parse().ok()
+    }
+}
+
 /// Execute one chunk's download loop with exponential-backoff retries.
 ///
 /// Streams each network frame directly into `tx` without accumulating the
@@ -498,27 +542,160 @@ async fn run_chunk(
         };
 
         let status = response.status();
+        let expected_in_stream: Option<u64>;
 
-        if !status.is_success() {
-            // 416 = Range Not Satisfiable — server doesn't support ranges.
-            // Fall back gracefully: treat as single-stream from here.
-            if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
-                return Ok(()); // caller will restart without Range header
+        if chunk.ranged {
+            if status == reqwest::StatusCode::OK {
+                let msg = format!(
+                    "HTTP 200 OK received for ranged chunk {} (requested {}-{}), expected 206 Partial Content",
+                    chunk.id,
+                    chunk.start_byte + bytes_emitted,
+                    local_end_byte
+                );
+                set_error_message(shared, chunk.id, Some(msg)).await;
+                return Err(MultiplexerError::HttpStatus {
+                    chunk_id: chunk.id,
+                    status: 200,
+                });
             }
-            return Err(MultiplexerError::HttpStatus {
-                chunk_id: chunk.id,
-                status: status.as_u16(),
+
+            if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+                let total_hint = response
+                    .headers()
+                    .get(header::CONTENT_RANGE)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(parse_content_range_total);
+
+                let msg = if let Some(total) = total_hint {
+                    format!(
+                        "HTTP 416 Range Not Satisfiable for chunk {} (server total: {}, requested {}-{})",
+                        chunk.id, total, chunk.start_byte + bytes_emitted, local_end_byte
+                    )
+                } else {
+                    format!(
+                        "HTTP 416 Range Not Satisfiable for chunk {} (requested {}-{})",
+                        chunk.id,
+                        chunk.start_byte + bytes_emitted,
+                        local_end_byte
+                    )
+                };
+                set_error_message(shared, chunk.id, Some(msg)).await;
+                return Err(MultiplexerError::HttpStatus {
+                    chunk_id: chunk.id,
+                    status: 416,
+                });
+            }
+
+            if status != reqwest::StatusCode::PARTIAL_CONTENT {
+                let msg = format!(
+                    "HTTP status {} received for ranged chunk {}, expected 206 Partial Content",
+                    status.as_u16(),
+                    chunk.id
+                );
+                set_error_message(shared, chunk.id, Some(msg)).await;
+                return Err(MultiplexerError::HttpStatus {
+                    chunk_id: chunk.id,
+                    status: status.as_u16(),
+                });
+            }
+
+            // Validate Content-Range header
+            let content_range_str = match response
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .and_then(|v| v.to_str().ok())
+            {
+                Some(s) => s.trim(),
+                None => {
+                    let msg = format!(
+                        "HTTP 206 response for chunk {} missing Content-Range header",
+                        chunk.id
+                    );
+                    set_error_message(shared, chunk.id, Some(msg)).await;
+                    return Err(MultiplexerError::HttpStatus {
+                        chunk_id: chunk.id,
+                        status: 206,
+                    });
+                }
+            };
+
+            let (resp_start, resp_end, _resp_total) = match parse_content_range(content_range_str) {
+                Some(res) => res,
+                None => {
+                    let msg = format!(
+                        "Malformed Content-Range header '{content_range_str}' for chunk {}",
+                        chunk.id
+                    );
+                    set_error_message(shared, chunk.id, Some(msg)).await;
+                    return Err(MultiplexerError::HttpStatus {
+                        chunk_id: chunk.id,
+                        status: 206,
+                    });
+                }
+            };
+
+            let req_start = chunk.start_byte + bytes_emitted;
+            if resp_start != req_start {
+                let msg = format!(
+                    "Content-Range start mismatch for chunk {}: server sent start {}, expected {}",
+                    chunk.id, resp_start, req_start
+                );
+                set_error_message(shared, chunk.id, Some(msg)).await;
+                return Err(MultiplexerError::HttpStatus {
+                    chunk_id: chunk.id,
+                    status: 206,
+                });
+            }
+
+            if resp_end < resp_start || resp_end > local_end_byte {
+                let msg = format!(
+                    "Content-Range end mismatch for chunk {}: server sent end {}, requested range was {}-{}",
+                    chunk.id, resp_end, req_start, local_end_byte
+                );
+                set_error_message(shared, chunk.id, Some(msg)).await;
+                return Err(MultiplexerError::HttpStatus {
+                    chunk_id: chunk.id,
+                    status: 206,
+                });
+            }
+
+            let expected_range_len = resp_end - resp_start + 1;
+            if let Some(cl) = response.content_length() {
+                if cl != expected_range_len {
+                    let msg = format!(
+                        "Inconsistent response headers for chunk {}: Content-Length ({}) != Content-Range length ({})",
+                        chunk.id, cl, expected_range_len
+                    );
+                    set_error_message(shared, chunk.id, Some(msg)).await;
+                    return Err(MultiplexerError::HttpStatus {
+                        chunk_id: chunk.id,
+                        status: 206,
+                    });
+                }
+            }
+            expected_in_stream = Some(expected_range_len);
+        } else {
+            // Non-ranged request (single stream)
+            if !status.is_success() {
+                return Err(MultiplexerError::HttpStatus {
+                    chunk_id: chunk.id,
+                    status: status.as_u16(),
+                });
+            }
+            expected_in_stream = response.content_length().or_else(|| {
+                if chunk.end_byte != u64::MAX {
+                    Some(chunk.end_byte.saturating_sub(chunk.start_byte) + 1)
+                } else {
+                    None
+                }
             });
-        }
-        // For ranged requests, server must return 206; anything else = no range support
-        if chunk.ranged && status != reqwest::StatusCode::PARTIAL_CONTENT {
-            return Ok(()); // silent OK — treat as if chunk is done, caller handles
         }
 
         // ── Stream body frames into the channel ───────────────────────────
         let mut stream = response.bytes_stream();
         let mut stream_failed: Option<String> = None;
         let mut is_downloading = false;
+        let mut stream_bytes_received = 0_u64;
 
         loop {
             tokio::select! {
@@ -546,7 +723,22 @@ async fn run_chunk(
                 next_item = tokio::time::timeout(std::time::Duration::from_secs(30), stream.next()) => {
                     let item = match next_item {
                         Ok(Some(item)) => item,
-                        Ok(None) => break, // Stream finished cleanly
+                        Ok(None) => {
+                            if let Some(expected) = expected_in_stream {
+                                if stream_bytes_received < expected {
+                                    stream_failed = Some(format!(
+                                        "Premature EOF for chunk {}: received {} of {} expected bytes",
+                                        chunk.id, stream_bytes_received, expected
+                                    ));
+                                }
+                            } else if chunk.ranged && (chunk.start_byte + bytes_emitted <= local_end_byte) {
+                                stream_failed = Some(format!(
+                                    "Premature EOF for ranged chunk {}: stream ended at offset {}, expected through {}",
+                                    chunk.id, chunk.start_byte + bytes_emitted, local_end_byte
+                                ));
+                            }
+                            break;
+                        }
                         Err(_) => {
                             stream_failed = Some("Stream timed out (30s) without receiving data".into());
                             break;
@@ -578,8 +770,11 @@ async fn run_chunk(
                             }
 
                             if !data.is_empty() {
+                                let len = data.len() as u64;
+                                stream_bytes_received = stream_bytes_received.saturating_add(len);
+
                                 let absolute_offset = chunk.start_byte + bytes_emitted;
-                                bytes_emitted = bytes_emitted.saturating_add(data.len() as u64);
+                                bytes_emitted = bytes_emitted.saturating_add(len);
 
                                 set_current_offset(shared, chunk.id, bytes_emitted).await;
 
@@ -607,9 +802,39 @@ async fn run_chunk(
         }
 
         if let Some(err) = stream_failed {
+            if !chunk.ranged && bytes_emitted > 0 {
+                last_error = format!(
+                    "Non-ranged chunk {} stream failed after emitting {} bytes: {}",
+                    chunk.id, bytes_emitted, err
+                );
+                set_error_message(shared, chunk.id, Some(last_error.clone())).await;
+                return Err(MultiplexerError::Exhausted {
+                    chunk_id: chunk.id,
+                    attempts: attempt,
+                    message: last_error,
+                });
+            }
             last_error = err;
             set_error_message(shared, chunk.id, Some(last_error.clone())).await;
             continue; // retry from the first byte not already emitted
+        }
+
+        if local_end_byte != u64::MAX && (chunk.start_byte + bytes_emitted <= local_end_byte) {
+            last_error = format!(
+                "Chunk {} stream ended before reaching end byte (emitted {}, needed {})",
+                chunk.id,
+                chunk.start_byte + bytes_emitted,
+                local_end_byte + 1
+            );
+            set_error_message(shared, chunk.id, Some(last_error.clone())).await;
+            if !chunk.ranged && bytes_emitted > 0 {
+                return Err(MultiplexerError::Exhausted {
+                    chunk_id: chunk.id,
+                    attempts: attempt,
+                    message: last_error,
+                });
+            }
+            continue;
         }
 
         // Reached end of stream cleanly.
@@ -766,5 +991,33 @@ mod tests {
         // The registry must contain the chunks we provided.
         let guard = handle.chunks.lock().await;
         assert_eq!(guard.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_content_range() {
+        assert_eq!(
+            parse_content_range("bytes 0-499/1000"),
+            Some((0, 499, Some(1000)))
+        );
+        assert_eq!(
+            parse_content_range("bytes 100-200/*"),
+            Some((100, 200, None))
+        );
+        assert_eq!(
+            parse_content_range("BYTES 1024-2047/5000"),
+            Some((1024, 2047, Some(5000)))
+        );
+        assert_eq!(parse_content_range("bytes */1000"), None);
+        assert_eq!(parse_content_range("invalid"), None);
+        assert_eq!(parse_content_range(""), None);
+    }
+
+    #[test]
+    fn test_parse_content_range_total() {
+        assert_eq!(parse_content_range_total("bytes */1000"), Some(1000));
+        assert_eq!(parse_content_range_total("bytes 0-499/2000"), Some(2000));
+        assert_eq!(parse_content_range_total("bytes */*"), None);
+        assert_eq!(parse_content_range_total("invalid"), None);
+        assert_eq!(parse_content_range_total(""), None);
     }
 }
