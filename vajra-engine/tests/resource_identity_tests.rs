@@ -23,7 +23,7 @@ static TEST_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 // ─── Flexible Mock HTTP Server for Remote Resource Identity Validation ────────
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct ServerConfig {
     data: Vec<u8>,
     etag: Option<String>,
@@ -32,6 +32,9 @@ struct ServerConfig {
     accept_ranges: bool,
     force_200_on_range: bool,
     chunk_delay_ms: u64,
+    override_content_range_total: Option<u64>,
+    content_range_star_total: bool,
+    switch_after_range_requests: Option<(usize, Arc<ServerConfig>)>,
 }
 
 struct MockServer {
@@ -51,6 +54,8 @@ impl MockServer {
         let config_clone = Arc::clone(&config_shared);
         let recorded = Arc::new(tokio::sync::Mutex::new(Vec::new()));
         let recorded_clone = Arc::clone(&recorded);
+        let range_request_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let range_request_count_clone = Arc::clone(&range_request_count);
 
         tokio::spawn(async move {
             while !shutdown_clone.load(Ordering::Relaxed) {
@@ -60,6 +65,7 @@ impl MockServer {
                 };
                 let cfg_lock = Arc::clone(&config_clone);
                 let rec_lock = Arc::clone(&recorded_clone);
+                let range_cnt = Arc::clone(&range_request_count_clone);
 
                 tokio::spawn(async move {
                     let mut buf = vec![0u8; 4096];
@@ -95,7 +101,15 @@ impl MockServer {
                         }
                     }
 
-                    let cfg = cfg_lock.read().await.clone();
+                    let mut cfg = cfg_lock.read().await.clone();
+                    if range.is_some() {
+                        let count = range_cnt.fetch_add(1, Ordering::SeqCst);
+                        if let Some((threshold, ref next_cfg)) = cfg.switch_after_range_requests {
+                            if count >= threshold {
+                                cfg = (**next_cfg).clone();
+                            }
+                        }
+                    }
                     let total_len = cfg.data.len();
 
                     if is_head {
@@ -168,9 +182,16 @@ impl MockServer {
                         }
 
                         let chunk_len = end.saturating_sub(start) + 1;
+                        let total_part = if cfg.content_range_star_total {
+                            "*".to_string()
+                        } else if let Some(t) = cfg.override_content_range_total {
+                            format!("{t}")
+                        } else {
+                            format!("{total_len}")
+                        };
                         let mut resp = format!(
                             "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {}-{}/{}\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\n",
-                            start, end, total_len, chunk_len
+                            start, end, total_part, chunk_len
                         );
                         if let Some(ref etag) = cfg.etag {
                             resp.push_str(&format!("ETag: {}\r\n", etag));
@@ -300,6 +321,7 @@ async fn test_saved_etag_same_etag_resumes() {
         accept_ranges: true,
         force_200_on_range: false,
         chunk_delay_ms: 0,
+        ..Default::default()
     })
     .await;
 
@@ -385,6 +407,7 @@ async fn test_saved_etag_changed_etag_fails_and_resets() {
         accept_ranges: true,
         force_200_on_range: false,
         chunk_delay_ms: 0,
+        ..Default::default()
     })
     .await;
 
@@ -471,6 +494,7 @@ async fn test_saved_etag_missing_current_etag_fails_closed() {
         accept_ranges: true,
         force_200_on_range: false,
         chunk_delay_ms: 0,
+        ..Default::default()
     })
     .await;
 
@@ -536,6 +560,7 @@ async fn test_saved_last_modified_same_last_modified_resumes() {
         accept_ranges: true,
         force_200_on_range: false,
         chunk_delay_ms: 0,
+        ..Default::default()
     })
     .await;
 
@@ -622,6 +647,7 @@ async fn test_selected_last_modified_used_as_if_range() {
         accept_ranges: true,
         force_200_on_range: false,
         chunk_delay_ms: 0,
+        ..Default::default()
     })
     .await;
 
@@ -674,6 +700,7 @@ async fn test_different_etag_not_rejected_when_last_modified_is_selected() {
         accept_ranges: true,
         force_200_on_range: false,
         chunk_delay_ms: 0,
+        ..Default::default()
     })
     .await;
 
@@ -755,6 +782,7 @@ async fn test_validator_mismatch_leaves_no_old_resource_bytes() {
         accept_ranges: true,
         force_200_on_range: false,
         chunk_delay_ms: 0,
+        ..Default::default()
     })
     .await;
 
@@ -843,6 +871,7 @@ async fn test_validator_survives_application_restart() {
         accept_ranges: true,
         force_200_on_range: false,
         chunk_delay_ms: 50,
+        ..Default::default()
     })
     .await;
 
@@ -895,6 +924,7 @@ async fn test_validator_survives_application_restart() {
             accept_ranges: true,
             force_200_on_range: false,
             chunk_delay_ms: 0,
+            ..Default::default()
         })
         .await;
 
@@ -929,6 +959,7 @@ async fn test_no_validator_server_continues_to_work() {
         accept_ranges: true,
         force_200_on_range: false,
         chunk_delay_ms: 0,
+        ..Default::default()
     })
     .await;
 
@@ -971,6 +1002,7 @@ async fn test_200_ok_on_if_range_fails_safely() {
         accept_ranges: true,
         force_200_on_range: true,
         chunk_delay_ms: 0,
+        ..Default::default()
     })
     .await;
 
@@ -999,5 +1031,208 @@ async fn test_200_ok_on_if_range_fails_safely() {
     assert!(
         !dest_file.exists(),
         "Partial file must not survive when 200 OK received on If-Range"
+    );
+}
+
+#[tokio::test]
+async fn test_content_range_contradictory_total_is_rejected() {
+    let _guard = TEST_MUTEX.lock().await;
+    let temp_dir = TempDir::new().unwrap();
+    std::env::set_var("VAJRA_DATA_DIR", temp_dir.path());
+
+    let size = 256 * 1024;
+    let data = generate_test_data(size);
+
+    // Server probe returns 256 KB (size), but ranged 206 responses send total 999999!
+    let server = MockServer::start(ServerConfig {
+        data: data.clone(),
+        etag: Some("\"etag-v1\"".to_string()),
+        accept_ranges: true,
+        override_content_range_total: Some(999999),
+        ..Default::default()
+    })
+    .await;
+
+    let dest_file = temp_dir.path().join("contradictory_total.bin");
+    let req = DownloadRequest {
+        url: server.url(),
+        dest_dir: temp_dir.path().to_path_buf(),
+        filename: Some("contradictory_total.bin".to_string()),
+        max_connections: 2,
+        ..Default::default()
+    };
+
+    let mut task = DownloadTask::start(req);
+    let final_progress = wait_for_terminal_state(&mut task, Duration::from_secs(5))
+        .await
+        .expect("Task should finish");
+
+    assert_eq!(final_progress.state, TaskState::Failed);
+    let err = final_progress.error.unwrap_or_default();
+    assert!(
+        err.contains("Content-Range total mismatch") || err.contains("Resource changed"),
+        "Error must report Content-Range total mismatch, got: {err}"
+    );
+
+    assert!(
+        !dest_file.exists() || std::fs::metadata(&dest_file).map(|m| m.len()).unwrap_or(0) == 0,
+        "Partial file must not contain written data on total mismatch"
+    );
+}
+
+#[tokio::test]
+async fn test_content_range_star_total_is_supported() {
+    let _guard = TEST_MUTEX.lock().await;
+    let temp_dir = TempDir::new().unwrap();
+    std::env::set_var("VAJRA_DATA_DIR", temp_dir.path());
+
+    let size = 128 * 1024;
+    let data = generate_test_data(size);
+
+    // Server sends Content-Range: bytes START-END/*
+    let server = MockServer::start(ServerConfig {
+        data: data.clone(),
+        etag: Some("\"etag-v1\"".to_string()),
+        accept_ranges: true,
+        content_range_star_total: true,
+        ..Default::default()
+    })
+    .await;
+
+    let dest_file = temp_dir.path().join("star_total.bin");
+    let req = DownloadRequest {
+        url: server.url(),
+        dest_dir: temp_dir.path().to_path_buf(),
+        filename: Some("star_total.bin".to_string()),
+        max_connections: 1,
+        ..Default::default()
+    };
+
+    let mut task = DownloadTask::start(req);
+    let final_progress = wait_for_terminal_state(&mut task, Duration::from_secs(5))
+        .await
+        .expect("Task should finish");
+
+    assert_eq!(final_progress.state, TaskState::Completed);
+    let disk_data = std::fs::read(&dest_file).unwrap();
+    assert_eq!(disk_data.len(), size);
+    assert_eq!(Sha256::digest(&disk_data), Sha256::digest(&data));
+}
+
+#[tokio::test]
+async fn test_mid_flight_etag_change_rejects_and_resets() {
+    let _guard = TEST_MUTEX.lock().await;
+    let temp_dir = TempDir::new().unwrap();
+    std::env::set_var("VAJRA_DATA_DIR", temp_dir.path());
+
+    let size = 256 * 1024;
+    let data_v1 = vec![0xAAu8; size];
+    let data_v2 = vec![0xBBu8; size];
+
+    // Config for V2
+    let v2_cfg = Arc::new(ServerConfig {
+        data: data_v2.clone(),
+        etag: Some("\"etag-v2\"".to_string()),
+        accept_ranges: true,
+        ..Default::default()
+    });
+
+    // Server starts with V1, but switches to V2 on range request index 1 (the 2nd range request)
+    let server = MockServer::start(ServerConfig {
+        data: data_v1.clone(),
+        etag: Some("\"etag-v1\"".to_string()),
+        accept_ranges: true,
+        switch_after_range_requests: Some((1, v2_cfg)),
+        ..Default::default()
+    })
+    .await;
+
+    let dest_file = temp_dir.path().join("midflight_etag.bin");
+    let req = DownloadRequest {
+        url: server.url(),
+        dest_dir: temp_dir.path().to_path_buf(),
+        filename: Some("midflight_etag.bin".to_string()),
+        max_connections: 2,
+        ..Default::default()
+    };
+
+    let mut task = DownloadTask::start(req);
+    let final_progress = wait_for_terminal_state(&mut task, Duration::from_secs(5))
+        .await
+        .expect("Task should finish");
+
+    // Task must fail safely
+    assert_eq!(final_progress.state, TaskState::Failed);
+    let err = final_progress.error.unwrap_or_default();
+    assert!(
+        err.contains("ETag mismatch") || err.contains("Resource changed"),
+        "Error must report ETag mismatch / resource changed, got: {err}"
+    );
+
+    // Destination file must NOT survive with mixed generation bytes
+    assert!(
+        !dest_file.exists(),
+        "Partial file must be deleted on mid-flight validator mismatch; no mixed-generation bytes may survive"
+    );
+}
+
+#[tokio::test]
+async fn test_mid_flight_last_modified_change_rejects_and_resets() {
+    let _guard = TEST_MUTEX.lock().await;
+    let temp_dir = TempDir::new().unwrap();
+    std::env::set_var("VAJRA_DATA_DIR", temp_dir.path());
+
+    let size = 256 * 1024;
+    let data_v1 = vec![0x11u8; size];
+    let data_v2 = vec![0x22u8; size];
+
+    let lm_v1 = "Sun, 06 Nov 1994 08:40:00 GMT";
+    let lm_v2 = "Sun, 06 Nov 1994 09:40:00 GMT";
+    let date_hdr = "Sun, 06 Nov 1994 10:00:00 GMT";
+
+    let v2_cfg = Arc::new(ServerConfig {
+        data: data_v2.clone(),
+        etag: None,
+        last_modified: Some(lm_v2.to_string()),
+        date: Some(date_hdr.to_string()),
+        accept_ranges: true,
+        ..Default::default()
+    });
+
+    let server = MockServer::start(ServerConfig {
+        data: data_v1.clone(),
+        etag: None,
+        last_modified: Some(lm_v1.to_string()),
+        date: Some(date_hdr.to_string()),
+        accept_ranges: true,
+        switch_after_range_requests: Some((1, v2_cfg)),
+        ..Default::default()
+    })
+    .await;
+
+    let dest_file = temp_dir.path().join("midflight_lm.bin");
+    let req = DownloadRequest {
+        url: server.url(),
+        dest_dir: temp_dir.path().to_path_buf(),
+        filename: Some("midflight_lm.bin".to_string()),
+        max_connections: 2,
+        ..Default::default()
+    };
+
+    let mut task = DownloadTask::start(req);
+    let final_progress = wait_for_terminal_state(&mut task, Duration::from_secs(5))
+        .await
+        .expect("Task should finish");
+
+    assert_eq!(final_progress.state, TaskState::Failed);
+    let err = final_progress.error.unwrap_or_default();
+    assert!(
+        err.contains("Last-Modified mismatch") || err.contains("Resource changed"),
+        "Error must report Last-Modified mismatch / resource changed, got: {err}"
+    );
+
+    assert!(
+        !dest_file.exists(),
+        "Partial file must be deleted on mid-flight Last-Modified mismatch"
     );
 }

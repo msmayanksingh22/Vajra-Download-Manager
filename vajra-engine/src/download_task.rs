@@ -1162,6 +1162,11 @@ async fn download_inner(
                     current_offset: c.bytes_written,
                     steal_tx: None,
                     if_range: selected_if_range.clone(),
+                    expected_total_bytes: if total_bytes > 0 {
+                        Some(total_bytes)
+                    } else {
+                        None
+                    },
                 }
             })
             .collect::<Vec<_>>()
@@ -1169,6 +1174,7 @@ async fn download_inner(
         let mut chs = calculate_chunks(total_bytes, max_connections)?;
         for c in &mut chs {
             c.if_range = selected_if_range.clone();
+            c.expected_total_bytes = Some(total_bytes);
         }
         chs
     } else {
@@ -1189,6 +1195,11 @@ async fn download_inner(
             current_offset: 0,
             steal_tx: None,
             if_range: None,
+            expected_total_bytes: if total_bytes > 0 {
+                Some(total_bytes)
+            } else {
+                None
+            },
         }]
     };
 
@@ -1235,6 +1246,7 @@ async fn download_inner(
                 current_offset: 0,
                 steal_tx: None,
                 if_range: chunk.if_range.clone(),
+                expected_total_bytes: chunk.expected_total_bytes,
             }
         })
         .collect();
@@ -1602,6 +1614,7 @@ async fn download_inner(
         if err_str.contains("remote resource identity condition failed")
             || err_str.contains("ETag mismatch")
             || err_str.contains("Last-Modified mismatch")
+            || err_str.contains("Content-Range total mismatch")
             || err_str.contains("unexpected HTTP status 200")
         {
             let _ = db.delete_segments(&id.to_string());

@@ -103,6 +103,8 @@ pub struct Chunk {
     pub steal_tx: Option<tokio::sync::mpsc::Sender<StealRequest>>,
     /// Selected resource identity validator used with HTTP `If-Range`.
     pub if_range: Option<SelectedValidator>,
+    /// Expected total size of the remote resource in bytes, if known.
+    pub expected_total_bytes: Option<u64>,
 }
 
 /// A single streaming data frame delivered through the mpsc channel.
@@ -232,6 +234,7 @@ pub fn calculate_chunks(
             current_offset: 0,
             steal_tx: None,
             if_range: None,
+            expected_total_bytes: Some(total_size),
         });
         offset += size;
     }
@@ -278,10 +281,11 @@ pub async fn steal_from_slowest(shared: &Arc<Mutex<Vec<Chunk>>>) -> Option<Chunk
     if let Ok(Some((midpoint, original_end_byte))) = response_rx.await {
         let mut guard = shared.lock().await;
         let new_id = guard.iter().map(|c| c.id).max().map(|m| m + 1).unwrap_or(0);
-        let donor_if_range = guard
+        let (donor_if_range, donor_total) = guard
             .iter()
             .find(|c| c.id == _chunk_id)
-            .and_then(|c| c.if_range.clone());
+            .map(|c| (c.if_range.clone(), c.expected_total_bytes))
+            .unwrap_or((None, None));
         // Create the new chunk for the stolen part (midpoint → original end)
         let new_chunk = Chunk {
             id: new_id,
@@ -295,6 +299,7 @@ pub async fn steal_from_slowest(shared: &Arc<Mutex<Vec<Chunk>>>) -> Option<Chunk
             current_offset: 0,
             steal_tx: None,
             if_range: donor_if_range,
+            expected_total_bytes: donor_total,
         };
         guard.push(new_chunk.clone());
         Some(new_chunk)
@@ -778,7 +783,7 @@ async fn run_chunk(
                 }
             };
 
-            let (resp_start, resp_end, _resp_total) = match parse_content_range(content_range_str) {
+            let (resp_start, resp_end, resp_total) = match parse_content_range(content_range_str) {
                 Some(res) => res,
                 None => {
                     let msg = format!(
@@ -793,6 +798,24 @@ async fn run_chunk(
                     });
                 }
             };
+
+            // Validate Content-Range total against expected total size if known
+            if let (Some(actual_total), Some(expected_total)) =
+                (resp_total, chunk.expected_total_bytes)
+            {
+                if actual_total != expected_total {
+                    let msg = format!(
+                        "Content-Range total mismatch for chunk {}: server sent total {}, expected {}",
+                        chunk.id, actual_total, expected_total
+                    );
+                    set_error_message(shared, chunk.id, Some(msg.clone())).await;
+                    return Err(MultiplexerError::HttpStatus {
+                        chunk_id: chunk.id,
+                        status: 206,
+                        message: msg,
+                    });
+                }
+            }
 
             let req_start = chunk.start_byte + bytes_emitted;
             if resp_start != req_start {
@@ -1115,6 +1138,7 @@ mod tests {
             current_offset: 0,
             steal_tx: None,
             if_range: None,
+            expected_total_bytes: Some(1_048_576),
         };
         let header_value = format!("bytes={}-{}", chunk.start_byte, chunk.end_byte);
         assert_eq!(header_value, "bytes=0-1048575");
@@ -1134,6 +1158,7 @@ mod tests {
             current_offset: 0,
             steal_tx: None,
             if_range: None,
+            expected_total_bytes: Some(4_194_304),
         };
         let v = format!("bytes={}-{}", chunk.start_byte, chunk.end_byte);
         assert_eq!(v, "bytes=3145728-4194303");
