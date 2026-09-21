@@ -96,6 +96,7 @@ impl RssManager {
                                                         ],
                                                         tcp_multiplexing_opt: false,
                                                         adaptive_chunk_v2: false,
+                                                        multiplexer_options: None,
                                                     };
 
                                                     // Insert to db to prevent duplicate downloads

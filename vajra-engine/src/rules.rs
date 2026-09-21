@@ -130,6 +130,7 @@ mod tests {
             tags: vec![],
             tcp_multiplexing_opt: false,
             adaptive_chunk_v2: false,
+            multiplexer_options: None,
         };
 
         engine.evaluate_and_apply(&mut req);

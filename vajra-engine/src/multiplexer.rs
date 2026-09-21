@@ -30,12 +30,183 @@ use tokio::{
 // ─── Constants ────────────────────────────────────────────────────────────────
 use crate::constants::*;
 
-/// Base delay for the first retry; doubles on each subsequent attempt.
-/// Retry schedule: 250 ms → 500 ms → 1 000 ms → 2 000 ms.
-const BASE_BACKOFF: Duration = Duration::from_millis(250);
-
 /// Default bounded-channel capacity (in `ChunkPayload` messages).
 pub const DEFAULT_CHANNEL_CAPACITY: usize = 256;
+
+/// Configuration options for multiplexer timeouts and retry behavior.
+#[derive(Debug, Clone)]
+pub struct MultiplexerOptions {
+    pub channel_capacity: usize,
+    pub inactivity_timeout: Duration,
+    pub header_timeout: Duration,
+    pub max_retries: u32,
+    pub max_total_attempts: u32,
+    pub base_backoff: Duration,
+    pub max_backoff: Duration,
+    pub max_retry_after: Duration,
+}
+
+impl Default for MultiplexerOptions {
+    fn default() -> Self {
+        Self {
+            channel_capacity: DEFAULT_CHANNEL_CAPACITY,
+            inactivity_timeout: STREAM_TIMEOUT,
+            header_timeout: REQUEST_TIMEOUT,
+            max_retries: MAX_RETRIES,
+            max_total_attempts: MAX_TOTAL_ATTEMPTS,
+            base_backoff: BASE_BACKOFF,
+            max_backoff: MAX_BACKOFF,
+            max_retry_after: MAX_RETRY_AFTER,
+        }
+    }
+}
+
+/// Parse an HTTP `Retry-After` header value (RFC 9110 §10.2.3).
+/// Supports delta-seconds, IMF-fixdate, and RFC 2822 date formats.
+/// Clamps result between `min_delay` and `max_delay`.
+pub fn parse_retry_after(
+    header_val: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    min_delay: Duration,
+    max_delay: Duration,
+) -> Option<Duration> {
+    let s = header_val.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    // 1. Non-negative decimal integer delta-seconds
+    if !s.starts_with('-') {
+        if let Ok(secs) = s.parse::<u64>() {
+            let dur = Duration::from_secs(secs);
+            return Some(dur.clamp(min_delay, max_delay));
+        }
+    }
+
+    // 2. HTTP-date: IMF-fixdate "%a, %d %b %Y %H:%M:%S GMT"
+    if let Ok(date) = chrono::NaiveDateTime::parse_from_str(s, "%a, %d %b %Y %H:%M:%S GMT") {
+        let date_utc =
+            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(date, chrono::Utc);
+        let diff = date_utc.signed_duration_since(now);
+        let secs = diff.num_seconds().max(0) as u64;
+        let dur = Duration::from_secs(secs);
+        return Some(dur.clamp(min_delay, max_delay));
+    }
+
+    // 3. Fallback: RFC 2822
+    if let Ok(date) = chrono::DateTime::parse_from_rfc2822(s) {
+        let diff = date.with_timezone(&chrono::Utc).signed_duration_since(now);
+        let secs = diff.num_seconds().max(0) as u64;
+        let dur = Duration::from_secs(secs);
+        return Some(dur.clamp(min_delay, max_delay));
+    }
+
+    // 4. Fallback: RFC 850
+    if let Ok(date) = chrono::NaiveDateTime::parse_from_str(s, "%A, %d-%b-%y %H:%M:%S GMT") {
+        let date_utc =
+            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(date, chrono::Utc);
+        let diff = date_utc.signed_duration_since(now);
+        let secs = diff.num_seconds().max(0) as u64;
+        let dur = Duration::from_secs(secs);
+        return Some(dur.clamp(min_delay, max_delay));
+    }
+
+    None
+}
+
+/// Strongly typed classification of an error or HTTP status code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetryDecision {
+    /// Transient failure that may be retried.
+    Retry {
+        retry_after: Option<Duration>,
+        reason: String,
+    },
+    /// Permanent failure that must NOT be retried.
+    Permanent { status: Option<u16>, reason: String },
+}
+
+/// Classify an HTTP response status code for retryability.
+pub fn classify_http_status(
+    status: reqwest::StatusCode,
+    is_ranged: bool,
+    retry_after: Option<Duration>,
+) -> RetryDecision {
+    let code = status.as_u16();
+    match code {
+        // HTTP 200 OK on a ranged request means the server does not support ranges
+        // or If-Range condition failed (resource identity change). This is permanent!
+        200 if is_ranged => RetryDecision::Permanent {
+            status: Some(200),
+            reason: "HTTP 200 OK received for ranged chunk, expected 206 Partial Content".into(),
+        },
+        // Transient server / gateway / rate-limiting errors
+        408 => RetryDecision::Retry {
+            retry_after,
+            reason: "HTTP 408 Request Timeout".into(),
+        },
+        429 => RetryDecision::Retry {
+            retry_after,
+            reason: "HTTP 429 Too Many Requests".into(),
+        },
+        500 => RetryDecision::Retry {
+            retry_after,
+            reason: "HTTP 500 Internal Server Error".into(),
+        },
+        502 => RetryDecision::Retry {
+            retry_after,
+            reason: "HTTP 502 Bad Gateway".into(),
+        },
+        503 => RetryDecision::Retry {
+            retry_after,
+            reason: "HTTP 503 Service Unavailable".into(),
+        },
+        504 => RetryDecision::Retry {
+            retry_after,
+            reason: "HTTP 504 Gateway Timeout".into(),
+        },
+        // Permanent errors
+        416 => RetryDecision::Permanent {
+            status: Some(416),
+            reason: "HTTP 416 Range Not Satisfiable".into(),
+        },
+        _ => RetryDecision::Permanent {
+            status: Some(code),
+            reason: format!("HTTP status {} is non-retryable", code),
+        },
+    }
+}
+
+/// Classify a transport / network error.
+pub fn classify_transport_error(err: &reqwest::Error) -> RetryDecision {
+    if err.is_timeout() {
+        RetryDecision::Retry {
+            retry_after: None,
+            reason: format!("Transport timeout: {err}"),
+        }
+    } else if err.is_connect() {
+        RetryDecision::Retry {
+            retry_after: None,
+            reason: format!("Connection failure: {err}"),
+        }
+    } else if err.is_request() {
+        RetryDecision::Permanent {
+            status: None,
+            reason: format!("Permanent client request error: {err}"),
+        }
+    } else if err.is_redirect() {
+        RetryDecision::Permanent {
+            status: None,
+            reason: format!("Redirect policy failure: {err}"),
+        }
+    } else {
+        // Other I/O, TLS, or hyper stream errors are transient
+        RetryDecision::Retry {
+            retry_after: None,
+            reason: format!("Transient transport error: {err}"),
+        }
+    }
+}
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -323,20 +494,35 @@ pub async fn steal_from_slowest(shared: &Arc<Mutex<Vec<Chunk>>>) -> Option<Chunk
 /// * `url`              – Target URL.  Must support HTTP range requests.
 /// * `initial_chunks`   – Output of [`calculate_chunks`]; consumed here.
 /// * `channel_capacity` – Bounded mpsc buffer depth.
-///   Use [`DEFAULT_CHANNEL_CAPACITY`] if unsure.
 pub fn start_download(
     client: Client,
     mirror_manager: Arc<tokio::sync::Mutex<crate::mirror::MirrorManager>>,
     initial_chunks: Vec<Chunk>,
     channel_capacity: usize,
 ) -> DownloadHandle {
+    let options = MultiplexerOptions {
+        channel_capacity,
+        ..Default::default()
+    };
+    start_download_with_options(client, mirror_manager, initial_chunks, options)
+}
+
+/// Spawn one `tokio` task per chunk with custom timeout, backoff, and retry options.
+pub fn start_download_with_options(
+    client: Client,
+    mirror_manager: Arc<tokio::sync::Mutex<crate::mirror::MirrorManager>>,
+    initial_chunks: Vec<Chunk>,
+    options: MultiplexerOptions,
+) -> DownloadHandle {
     let shared = Arc::new(Mutex::new(initial_chunks.clone()));
-    let (tx, rx) = mpsc::channel::<Result<ChunkPayload, MultiplexerError>>(channel_capacity);
+    let (tx, rx) =
+        mpsc::channel::<Result<ChunkPayload, MultiplexerError>>(options.channel_capacity);
     let abort_handles = Arc::new(std::sync::Mutex::new(Vec::with_capacity(
         initial_chunks.len(),
     )));
 
     let client_shared = Arc::new(client);
+    let options_shared = Arc::new(options);
     for chunk_snapshot in initial_chunks {
         if chunk_snapshot.status == ChunkStatus::Completed {
             continue;
@@ -345,6 +531,7 @@ pub fn start_download(
         let mirror_manager = Arc::clone(&mirror_manager);
         let tx = tx.clone();
         let shared = Arc::clone(&shared);
+        let options = Arc::clone(&options_shared);
 
         let handle = tokio::spawn(async move {
             let mut current_chunk = chunk_snapshot;
@@ -353,14 +540,21 @@ pub fn start_download(
                 set_status(&shared, current_chunk.id, ChunkStatus::Connecting).await;
 
                 // ── 2. Execute with retry ─────────────────────────────────────
-                let outcome =
-                    run_chunk(&client, &mirror_manager, &current_chunk, &tx, &shared).await;
+                let outcome = run_chunk(
+                    &client,
+                    &mirror_manager,
+                    &current_chunk,
+                    &tx,
+                    &shared,
+                    &options,
+                )
+                .await;
 
                 // ── 3. Persist final status ───────────────────────────────────
                 let final_status = match &outcome {
                     Ok(()) => ChunkStatus::Completed,
                     Err(e) => ChunkStatus::Failed {
-                        attempts: MAX_RETRIES,
+                        attempts: options.max_retries,
                         reason: e.to_string(),
                     },
                 };
@@ -551,6 +745,7 @@ async fn run_chunk(
     chunk: &Chunk,
     tx: &mpsc::Sender<Result<ChunkPayload, MultiplexerError>>,
     shared: &Arc<Mutex<Vec<Chunk>>>,
+    options: &MultiplexerOptions,
 ) -> Result<(), MultiplexerError> {
     struct StealCleanup {
         shared: Arc<Mutex<Vec<Chunk>>>,
@@ -581,9 +776,13 @@ async fn run_chunk(
         chunk_id: chunk.id,
     };
 
+    #[allow(unused_assignments)]
     let mut last_error = String::new();
     let mut bytes_emitted = 0_u64;
     let mut local_end_byte = chunk.end_byte;
+    let mut consecutive_failures = 0_u32;
+    let mut total_attempts = 0_u32;
+    let mut pending_retry_delay: Option<Duration> = None;
 
     // Get initial mirror
     let mut current_url = {
@@ -599,10 +798,10 @@ async fn run_chunk(
         urls.remove(0)
     };
 
-    for attempt in 0..MAX_RETRIES {
-        // ── Exponential backoff (skip on first attempt) ───────────────────
-        if attempt > 0 {
-            set_retry_count(shared, chunk.id, attempt as usize).await;
+    loop {
+        // Sleep backoff if this is a retry attempt
+        if let Some(delay) = pending_retry_delay.take() {
+            set_retry_count(shared, chunk.id, total_attempts as usize).await;
             set_status(shared, chunk.id, ChunkStatus::Connecting).await;
 
             // On retry, try to swap mirror
@@ -615,12 +814,13 @@ async fn run_chunk(
                 current_url = new_mirror;
             }
 
-            // 0 → 250 ms, 1 → 500 ms, 2 → 1 000 ms
-            let delay = BASE_BACKOFF * 2u32.pow(attempt - 1);
             sleep(delay).await;
         }
 
-        // ── Send the range request ────────────────────────────────────────
+        total_attempts += 1;
+        let bytes_at_attempt_start = bytes_emitted;
+
+        // ── Send the range request with header timeout ─────────────────────
         let request = client.get(&current_url);
         let request = if chunk.ranged {
             let mut req = request.header(
@@ -638,84 +838,196 @@ async fn run_chunk(
         } else {
             request
         };
-        let response = match request.send().await {
-            Ok(r) => r,
-            Err(e) => {
-                last_error = e.to_string();
+
+        let response_result = tokio::time::timeout(options.header_timeout, request.send()).await;
+        let response = match response_result {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                let decision = classify_transport_error(&e);
+                match decision {
+                    RetryDecision::Retry {
+                        retry_after,
+                        reason,
+                    } => {
+                        last_error = reason;
+                        set_error_message(shared, chunk.id, Some(last_error.clone())).await;
+                        if bytes_emitted > bytes_at_attempt_start {
+                            consecutive_failures = 0;
+                        } else {
+                            consecutive_failures += 1;
+                        }
+                        if consecutive_failures >= options.max_retries
+                            || total_attempts >= options.max_total_attempts
+                        {
+                            return Err(MultiplexerError::Exhausted {
+                                chunk_id: chunk.id,
+                                attempts: total_attempts,
+                                message: last_error,
+                            });
+                        }
+                        let delay = if let Some(ra) = retry_after {
+                            ra
+                        } else {
+                            let exp = consecutive_failures.saturating_sub(1);
+                            options
+                                .base_backoff
+                                .saturating_mul(2u32.saturating_pow(exp))
+                                .min(options.max_backoff)
+                        };
+                        pending_retry_delay = Some(delay);
+                        continue;
+                    }
+                    RetryDecision::Permanent { status, reason } => {
+                        last_error = reason.clone();
+                        set_error_message(shared, chunk.id, Some(last_error.clone())).await;
+                        return Err(MultiplexerError::HttpStatus {
+                            chunk_id: chunk.id,
+                            status: status.unwrap_or(0),
+                            message: reason,
+                        });
+                    }
+                }
+            }
+            Err(_) => {
+                last_error = format!(
+                    "Header response timed out after {:?}",
+                    options.header_timeout
+                );
                 set_error_message(shared, chunk.id, Some(last_error.clone())).await;
-                continue; // retry
+                if bytes_emitted > bytes_at_attempt_start {
+                    consecutive_failures = 0;
+                } else {
+                    consecutive_failures += 1;
+                }
+                if consecutive_failures >= options.max_retries
+                    || total_attempts >= options.max_total_attempts
+                {
+                    return Err(MultiplexerError::Exhausted {
+                        chunk_id: chunk.id,
+                        attempts: total_attempts,
+                        message: last_error,
+                    });
+                }
+                let exp = consecutive_failures.saturating_sub(1);
+                let delay = options
+                    .base_backoff
+                    .saturating_mul(2u32.saturating_pow(exp))
+                    .min(options.max_backoff);
+                pending_retry_delay = Some(delay);
+                continue;
             }
         };
 
         let status = response.status();
         let expected_in_stream: Option<u64>;
 
+        // Check if response is valid 206 (or 200 for non-ranged)
+        let is_valid_ranged = chunk.ranged && status == reqwest::StatusCode::PARTIAL_CONTENT;
+        let is_valid_non_ranged = !chunk.ranged && status.is_success();
+
+        if !is_valid_ranged && !is_valid_non_ranged {
+            let retry_after_header = response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok());
+            let parsed_retry_after = retry_after_header.and_then(|h| {
+                parse_retry_after(
+                    h,
+                    chrono::Utc::now(),
+                    options.base_backoff,
+                    options.max_retry_after,
+                )
+            });
+            let decision = classify_http_status(status, chunk.ranged, parsed_retry_after);
+
+            match decision {
+                RetryDecision::Retry {
+                    retry_after,
+                    reason,
+                } => {
+                    last_error = reason;
+                    set_error_message(shared, chunk.id, Some(last_error.clone())).await;
+                    if bytes_emitted > bytes_at_attempt_start {
+                        consecutive_failures = 0;
+                    } else {
+                        consecutive_failures += 1;
+                    }
+                    if consecutive_failures >= options.max_retries
+                        || total_attempts >= options.max_total_attempts
+                    {
+                        return Err(MultiplexerError::Exhausted {
+                            chunk_id: chunk.id,
+                            attempts: total_attempts,
+                            message: last_error,
+                        });
+                    }
+                    let delay = if let Some(ra) = retry_after {
+                        ra
+                    } else {
+                        let exp = consecutive_failures.saturating_sub(1);
+                        options
+                            .base_backoff
+                            .saturating_mul(2u32.saturating_pow(exp))
+                            .min(options.max_backoff)
+                    };
+                    pending_retry_delay = Some(delay);
+                    continue;
+                }
+                RetryDecision::Permanent {
+                    status: code,
+                    reason,
+                } => {
+                    let status_code = code.unwrap_or(status.as_u16());
+                    let msg = if status == reqwest::StatusCode::OK && chunk.ranged {
+                        if let Some(ref val) = chunk.if_range {
+                            format!(
+                                "HTTP 200 OK received for ranged chunk {} carrying If-Range '{}': remote resource identity condition failed",
+                                chunk.id,
+                                val.as_header_value()
+                            )
+                        } else {
+                            format!(
+                                "HTTP 200 OK received for ranged chunk {} (requested {}-{}), expected 206 Partial Content",
+                                chunk.id,
+                                chunk.start_byte + bytes_emitted,
+                                local_end_byte
+                            )
+                        }
+                    } else if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+                        let total_hint = response
+                            .headers()
+                            .get(header::CONTENT_RANGE)
+                            .and_then(|v| v.to_str().ok())
+                            .and_then(parse_content_range_total);
+
+                        if let Some(total) = total_hint {
+                            format!(
+                                "HTTP 416 Range Not Satisfiable for chunk {} (server total: {}, requested {}-{})",
+                                chunk.id, total, chunk.start_byte + bytes_emitted, local_end_byte
+                            )
+                        } else {
+                            format!(
+                                "HTTP 416 Range Not Satisfiable for chunk {} (requested {}-{})",
+                                chunk.id,
+                                chunk.start_byte + bytes_emitted,
+                                local_end_byte
+                            )
+                        }
+                    } else {
+                        reason
+                    };
+                    set_error_message(shared, chunk.id, Some(msg.clone())).await;
+                    return Err(MultiplexerError::HttpStatus {
+                        chunk_id: chunk.id,
+                        status: status_code,
+                        message: msg,
+                    });
+                }
+            }
+        }
+
+        // Header validations for ranged response
         if chunk.ranged {
-            if status == reqwest::StatusCode::OK {
-                let msg = if let Some(ref val) = chunk.if_range {
-                    format!(
-                        "HTTP 200 OK received for ranged chunk {} carrying If-Range '{}': remote resource identity condition failed",
-                        chunk.id,
-                        val.as_header_value()
-                    )
-                } else {
-                    format!(
-                        "HTTP 200 OK received for ranged chunk {} (requested {}-{}), expected 206 Partial Content",
-                        chunk.id,
-                        chunk.start_byte + bytes_emitted,
-                        local_end_byte
-                    )
-                };
-                set_error_message(shared, chunk.id, Some(msg.clone())).await;
-                return Err(MultiplexerError::HttpStatus {
-                    chunk_id: chunk.id,
-                    status: 200,
-                    message: msg,
-                });
-            }
-
-            if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
-                let total_hint = response
-                    .headers()
-                    .get(header::CONTENT_RANGE)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(parse_content_range_total);
-
-                let msg = if let Some(total) = total_hint {
-                    format!(
-                        "HTTP 416 Range Not Satisfiable for chunk {} (server total: {}, requested {}-{})",
-                        chunk.id, total, chunk.start_byte + bytes_emitted, local_end_byte
-                    )
-                } else {
-                    format!(
-                        "HTTP 416 Range Not Satisfiable for chunk {} (requested {}-{})",
-                        chunk.id,
-                        chunk.start_byte + bytes_emitted,
-                        local_end_byte
-                    )
-                };
-                set_error_message(shared, chunk.id, Some(msg.clone())).await;
-                return Err(MultiplexerError::HttpStatus {
-                    chunk_id: chunk.id,
-                    status: 416,
-                    message: msg,
-                });
-            }
-
-            if status != reqwest::StatusCode::PARTIAL_CONTENT {
-                let msg = format!(
-                    "HTTP status {} received for ranged chunk {}, expected 206 Partial Content",
-                    status.as_u16(),
-                    chunk.id
-                );
-                set_error_message(shared, chunk.id, Some(msg.clone())).await;
-                return Err(MultiplexerError::HttpStatus {
-                    chunk_id: chunk.id,
-                    status: status.as_u16(),
-                    message: msg,
-                });
-            }
-
             // Validate response headers against selected If-Range validator without cross-type confusion
             if let Some(ref selected) = chunk.if_range {
                 match selected {
@@ -862,13 +1174,6 @@ async fn run_chunk(
             expected_in_stream = Some(expected_range_len);
         } else {
             // Non-ranged request (single stream)
-            if !status.is_success() {
-                return Err(MultiplexerError::HttpStatus {
-                    chunk_id: chunk.id,
-                    status: status.as_u16(),
-                    message: format!("HTTP status {} for non-ranged request", status.as_u16()),
-                });
-            }
             expected_in_stream = response.content_length().or_else(|| {
                 if chunk.end_byte != u64::MAX {
                     Some(chunk.end_byte.saturating_sub(chunk.start_byte) + 1)
@@ -907,7 +1212,7 @@ async fn run_chunk(
                         let _ = req.response_tx.send(None);
                     }
                 }
-                next_item = tokio::time::timeout(std::time::Duration::from_secs(30), stream.next()) => {
+                next_item = tokio::time::timeout(options.inactivity_timeout, stream.next()) => {
                     let item = match next_item {
                         Ok(Some(item)) => item,
                         Ok(None) => {
@@ -927,7 +1232,10 @@ async fn run_chunk(
                             break;
                         }
                         Err(_) => {
-                            stream_failed = Some("Stream timed out (30s) without receiving data".into());
+                            stream_failed = Some(format!(
+                                "Stream timed out ({:?}) without receiving data",
+                                options.inactivity_timeout
+                            ));
                             break;
                         }
                     };
@@ -997,12 +1305,35 @@ async fn run_chunk(
                 set_error_message(shared, chunk.id, Some(last_error.clone())).await;
                 return Err(MultiplexerError::Exhausted {
                     chunk_id: chunk.id,
-                    attempts: attempt,
+                    attempts: total_attempts,
                     message: last_error,
                 });
             }
             last_error = err;
             set_error_message(shared, chunk.id, Some(last_error.clone())).await;
+
+            if bytes_emitted > bytes_at_attempt_start {
+                consecutive_failures = 0;
+            } else {
+                consecutive_failures += 1;
+            }
+
+            if consecutive_failures >= options.max_retries
+                || total_attempts >= options.max_total_attempts
+            {
+                return Err(MultiplexerError::Exhausted {
+                    chunk_id: chunk.id,
+                    attempts: total_attempts,
+                    message: last_error,
+                });
+            }
+
+            let exp = consecutive_failures.saturating_sub(1);
+            let delay = options
+                .base_backoff
+                .saturating_mul(2u32.saturating_pow(exp))
+                .min(options.max_backoff);
+            pending_retry_delay = Some(delay);
             continue; // retry from the first byte not already emitted
         }
 
@@ -1017,22 +1348,39 @@ async fn run_chunk(
             if !chunk.ranged && bytes_emitted > 0 {
                 return Err(MultiplexerError::Exhausted {
                     chunk_id: chunk.id,
-                    attempts: attempt,
+                    attempts: total_attempts,
                     message: last_error,
                 });
             }
+
+            if bytes_emitted > bytes_at_attempt_start {
+                consecutive_failures = 0;
+            } else {
+                consecutive_failures += 1;
+            }
+
+            if consecutive_failures >= options.max_retries
+                || total_attempts >= options.max_total_attempts
+            {
+                return Err(MultiplexerError::Exhausted {
+                    chunk_id: chunk.id,
+                    attempts: total_attempts,
+                    message: last_error,
+                });
+            }
+
+            let exp = consecutive_failures.saturating_sub(1);
+            let delay = options
+                .base_backoff
+                .saturating_mul(2u32.saturating_pow(exp))
+                .min(options.max_backoff);
+            pending_retry_delay = Some(delay);
             continue;
         }
 
         // Reached end of stream cleanly.
         return Ok(());
     }
-
-    Err(MultiplexerError::Exhausted {
-        chunk_id: chunk.id,
-        attempts: MAX_RETRIES,
-        message: last_error,
-    })
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -1210,5 +1558,112 @@ mod tests {
         assert_eq!(parse_content_range_total("bytes */*"), None);
         assert_eq!(parse_content_range_total("invalid"), None);
         assert_eq!(parse_content_range_total(""), None);
+    }
+
+    #[test]
+    fn test_parse_retry_after() {
+        let now = chrono::DateTime::parse_from_rfc2822("Mon, 21 Sep 2026 12:00:00 GMT")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let min_delay = Duration::from_millis(250);
+        let max_delay = Duration::from_secs(60);
+
+        // delta-seconds
+        assert_eq!(
+            parse_retry_after("10", now, min_delay, max_delay),
+            Some(Duration::from_secs(10))
+        );
+        // clamp to max
+        assert_eq!(
+            parse_retry_after("99999", now, min_delay, max_delay),
+            Some(max_delay)
+        );
+        // clamp to min
+        assert_eq!(
+            parse_retry_after("0", now, min_delay, max_delay),
+            Some(min_delay)
+        );
+        // negative seconds rejected
+        assert_eq!(parse_retry_after("-5", now, min_delay, max_delay), None);
+
+        // IMF-fixdate: 30 seconds into future
+        let future_date = "Mon, 21 Sep 2026 12:00:30 GMT";
+        assert_eq!(
+            parse_retry_after(future_date, now, min_delay, max_delay),
+            Some(Duration::from_secs(30))
+        );
+
+        // Date in past clamped to min_delay
+        let past_date = "Mon, 21 Sep 2026 11:59:00 GMT";
+        assert_eq!(
+            parse_retry_after(past_date, now, min_delay, max_delay),
+            Some(min_delay)
+        );
+
+        // Invalid string
+        assert_eq!(
+            parse_retry_after("not-a-date", now, min_delay, max_delay),
+            None
+        );
+        assert_eq!(parse_retry_after("", now, min_delay, max_delay), None);
+    }
+
+    #[test]
+    fn test_classify_http_status() {
+        // Retryable
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::TOO_MANY_REQUESTS, true, None),
+            RetryDecision::Retry { .. }
+        ));
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::SERVICE_UNAVAILABLE, true, None),
+            RetryDecision::Retry { .. }
+        ));
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::BAD_GATEWAY, true, None),
+            RetryDecision::Retry { .. }
+        ));
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::GATEWAY_TIMEOUT, true, None),
+            RetryDecision::Retry { .. }
+        ));
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR, true, None),
+            RetryDecision::Retry { .. }
+        ));
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::REQUEST_TIMEOUT, true, None),
+            RetryDecision::Retry { .. }
+        ));
+
+        // Permanent
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::NOT_FOUND, true, None),
+            RetryDecision::Permanent {
+                status: Some(404),
+                ..
+            }
+        ));
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::FORBIDDEN, true, None),
+            RetryDecision::Permanent {
+                status: Some(403),
+                ..
+            }
+        ));
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::RANGE_NOT_SATISFIABLE, true, None),
+            RetryDecision::Permanent {
+                status: Some(416),
+                ..
+            }
+        ));
+        assert!(matches!(
+            classify_http_status(reqwest::StatusCode::OK, true, None),
+            RetryDecision::Permanent {
+                status: Some(200),
+                ..
+            }
+        ));
     }
 }

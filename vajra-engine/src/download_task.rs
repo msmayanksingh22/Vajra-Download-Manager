@@ -19,6 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use futures_util::StreamExt;
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, Mutex, RwLock};
@@ -30,7 +31,9 @@ pub use vajra_protocol::QueueType;
 use crate::constants::*;
 use crate::{
     allocator::allocate_file_space,
-    multiplexer::{calculate_chunks, start_download, ChunkPayload, DEFAULT_CHANNEL_CAPACITY},
+    multiplexer::{
+        calculate_chunks, start_download_with_options, ChunkPayload, DEFAULT_CHANNEL_CAPACITY,
+    },
     throttle::{CombinedThrottle, Throttle},
     writer::{start_disk_writer, DataFrame},
 };
@@ -59,6 +62,9 @@ pub struct DownloadRequest {
     /// created automatically from `speed_limit` with an unlimited global bucket.
     #[serde(skip)]
     pub throttle: Option<crate::throttle::CombinedThrottle>,
+    /// Custom multiplexer options for testing or advanced configuration
+    #[serde(skip)]
+    pub multiplexer_options: Option<crate::multiplexer::MultiplexerOptions>,
     /// If true, delete incomplete file on failure.
     pub delete_on_failure: bool,
     #[serde(default)]
@@ -600,10 +606,24 @@ async fn download_inner(
         value.set_sensitive(true);
         default_headers.insert(header::AUTHORIZATION, value);
     }
-    let timeout = req
-        .timeout_secs
-        .map(Duration::from_secs)
-        .unwrap_or(REQUEST_TIMEOUT);
+    let header_timeout = req
+        .multiplexer_options
+        .as_ref()
+        .map(|o| o.header_timeout)
+        .unwrap_or_else(|| {
+            req.timeout_secs
+                .map(Duration::from_secs)
+                .unwrap_or(REQUEST_TIMEOUT)
+        });
+    let inactivity_timeout = req
+        .multiplexer_options
+        .as_ref()
+        .map(|o| o.inactivity_timeout)
+        .unwrap_or_else(|| {
+            req.timeout_secs
+                .map(Duration::from_secs)
+                .unwrap_or(STREAM_TIMEOUT)
+        });
     let connect_timeout = req
         .connect_timeout_secs
         .map(Duration::from_secs)
@@ -678,7 +698,6 @@ async fn download_inner(
             };
 
             let mut b = Client::builder()
-                .timeout(timeout)
                 .connect_timeout(connect_timeout)
                 .tcp_keepalive(keepalive)
                 .https_only(false)
@@ -753,19 +772,24 @@ async fn download_inner(
 
     // Probe result: (response, Option<overridden_total_bytes>)
     let (head, probe_total_bytes_override) = loop {
-        let res = match primary_client.head(&target_url).send().await {
-            Ok(response) if response.status().is_success() => Some((response, None)),
+        let head_res =
+            tokio::time::timeout(header_timeout, primary_client.head(&target_url).send()).await;
+        let res = match head_res {
+            Ok(Ok(response)) if response.status().is_success() => Some((response, None)),
             _ => {
                 // HEAD failed — send a minimal GET to sniff headers without
                 // downloading the full body.
-                let response = primary_client
-                    .get(&target_url)
-                    .header(header::RANGE, "bytes=0-0")
-                    .send()
-                    .await;
+                let get_res = tokio::time::timeout(
+                    header_timeout,
+                    primary_client
+                        .get(&target_url)
+                        .header(header::RANGE, "bytes=0-0")
+                        .send(),
+                )
+                .await;
 
-                match response {
-                    Ok(resp) => {
+                match get_res {
+                    Ok(Ok(resp)) => {
                         let status = resp.status();
                         let is_html = resp
                             .headers()
@@ -778,46 +802,53 @@ async fn download_inner(
                             || status == reqwest::StatusCode::TOO_MANY_REQUESTS
                             || (status.is_success() && is_html)
                         {
-                            if let Ok(body_text) = resp.text().await {
-                                let mut site_key = None;
-                                if let Some(cap) = re_sitekey1.captures(&body_text) {
-                                    site_key = Some(cap[1].to_string());
-                                } else if let Some(cap) = re_sitekey2.captures(&body_text) {
-                                    site_key = Some(cap[1].to_string());
+                            let mut stream = resp.bytes_stream();
+                            let mut body_bytes = Vec::new();
+                            while let Some(Ok(chunk)) = stream.next().await {
+                                body_bytes.extend_from_slice(&chunk);
+                                if body_bytes.len() >= 65536 {
+                                    break;
                                 }
+                            }
+                            let body_text = String::from_utf8_lossy(&body_bytes);
+                            let mut site_key = None;
+                            if let Some(cap) = re_sitekey1.captures(&body_text) {
+                                site_key = Some(cap[1].to_string());
+                            } else if let Some(cap) = re_sitekey2.captures(&body_text) {
+                                site_key = Some(cap[1].to_string());
+                            }
 
-                                if let Some(skey) = site_key {
-                                    tracing::info!("Detected reCAPTCHA v2 sitekey: {}", skey);
-                                    let captcha_api_key = db
-                                        .get_credential_by_domain("2captcha.com")
-                                        .ok()
-                                        .flatten()
-                                        .map(|c| c.password);
-                                    if let Some(apikey) = captcha_api_key {
-                                        emit(tx, id, |p| p.state = TaskState::SolvingCaptcha);
-                                        let solver = crate::captcha::CaptchaSolver::new(apikey);
-                                        match solver.solve_recaptcha_v2(&skey, &target_url).await {
-                                            Ok(token) => {
-                                                tracing::info!("Captcha solved successfully!");
-                                                if let Ok(mut url_parsed) =
-                                                    url::Url::parse(&target_url)
-                                                {
-                                                    url_parsed.query_pairs_mut().append_pair(
-                                                        "g-recaptcha-response",
-                                                        &token,
-                                                    );
-                                                    target_url = url_parsed.to_string();
-                                                }
-                                                emit(tx, id, |p| p.state = TaskState::FetchingMeta);
-                                                continue;
+                            if let Some(skey) = site_key {
+                                tracing::info!("Detected reCAPTCHA v2 sitekey: {}", skey);
+                                let captcha_api_key = db
+                                    .get_credential_by_domain("2captcha.com")
+                                    .ok()
+                                    .flatten()
+                                    .map(|c| c.password);
+                                if let Some(apikey) = captcha_api_key {
+                                    emit(tx, id, |p| p.state = TaskState::SolvingCaptcha);
+                                    let solver = crate::captcha::CaptchaSolver::new(apikey);
+                                    match solver.solve_recaptcha_v2(&skey, &target_url).await {
+                                        Ok(token) => {
+                                            tracing::info!("Captcha solved successfully!");
+                                            if let Ok(mut url_parsed) = url::Url::parse(&target_url)
+                                            {
+                                                url_parsed
+                                                    .query_pairs_mut()
+                                                    .append_pair("g-recaptcha-response", &token);
+                                                target_url = url_parsed.to_string();
                                             }
-                                            Err(err) => {
-                                                tracing::error!("Captcha solving failed: {}", err);
-                                            }
+                                            emit(tx, id, |p| p.state = TaskState::FetchingMeta);
+                                            continue;
                                         }
-                                    } else {
-                                        tracing::warn!("Captcha detected but no 2captcha.com API key found in vault");
+                                        Err(err) => {
+                                            tracing::error!("Captcha solving failed: {}", err);
+                                        }
                                     }
+                                } else {
+                                    tracing::warn!(
+                                        "Captcha detected but no 2captcha.com API key found in vault"
+                                    );
                                 }
                             }
                             None
@@ -839,7 +870,7 @@ async fn download_inner(
                             None
                         }
                     }
-                    Err(_) => None,
+                    _ => None,
                 }
             }
         };
@@ -1299,12 +1330,15 @@ async fn download_inner(
         primary_client.clone(),
     )));
 
-    let mux_handle = start_download(
-        primary_client,
-        mirror_manager,
-        all_chunks,
-        DEFAULT_CHANNEL_CAPACITY,
-    );
+    let mut mux_options = req.multiplexer_options.clone().unwrap_or_default();
+    if req.multiplexer_options.is_none() {
+        mux_options.header_timeout = header_timeout;
+        mux_options.inactivity_timeout = inactivity_timeout;
+    }
+    mux_options.channel_capacity = DEFAULT_CHANNEL_CAPACITY;
+
+    let mux_handle =
+        start_download_with_options(primary_client, mirror_manager, all_chunks, mux_options);
     let crate::multiplexer::DownloadHandle {
         receiver: mut mux_rx,
         chunks: mux_chunks,
@@ -1363,8 +1397,17 @@ async fn download_inner(
                         }
                     };
 
-                    let payload: ChunkPayload =
-                        result.map_err(|e| anyhow::anyhow!("Chunk download failed: {e}"))?;
+                    let payload: ChunkPayload = match result {
+                        Ok(p) => p,
+                        Err(e) => {
+                            // Flush any buffered frames to writer before exiting so confirmed bytes are persisted
+                            let ids: Vec<usize> = buf_map.keys().copied().collect();
+                            for id in ids {
+                                let _ = flush_one(id, &mut buf_map, &writer_tx).await;
+                            }
+                            return Err(anyhow::anyhow!("Chunk download failed: {e}"));
+                        }
+                    };
 
                     let len = payload.data.len() as u64;
 

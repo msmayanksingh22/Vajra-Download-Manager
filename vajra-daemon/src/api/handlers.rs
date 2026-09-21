@@ -196,6 +196,7 @@ pub async fn add_download(
         priority: vajra_protocol::Priority::Normal,
         tags: body.tags.clone().unwrap_or_default(),
         daemon_config: Some((*config).clone()),
+        multiplexer_options: None,
     };
 
     drop(config);
