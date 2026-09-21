@@ -205,6 +205,8 @@ pub enum DownloadError {
     IncompleteDownload(String),
     #[error("Multiplexer error: {0}")]
     Multiplexer(String),
+    #[error("Resource changed: {0}")]
+    ResourceChanged(String),
     #[error("Other error: {0}")]
     Other(String),
 }
@@ -887,12 +889,16 @@ async fn download_inner(
             .map(|v| v.trim().eq_ignore_ascii_case("bytes"))
             .unwrap_or(false);
 
-    let _etag = headers
+    let current_etag = headers
         .get(header::ETAG)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    let _last_modified = headers
+    let current_last_modified = headers
         .get(header::LAST_MODIFIED)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let current_date = headers
+        .get(header::DATE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
 
@@ -968,15 +974,6 @@ async fn download_inner(
         p.dest_path = dest_path.to_string_lossy().into_owned();
     });
 
-    // ── Allocate disk space ───────────────────────────────────────────────
-    if total_bytes > 0 && !dest_path.exists() {
-        emit(tx, id, |p| p.state = TaskState::Allocating);
-        allocate_file_space(&dest_path, total_bytes).await?;
-    } else if !dest_path.exists() {
-        // Unknown size — create empty file, will grow as we write
-        std::fs::File::create(&dest_path)?;
-    }
-
     // ── Load segment state from SQLite ────────────────────────────────────
     let saved_segments = if accepts_ranges && total_bytes > 0 {
         db.load_segments(&id.to_string()).unwrap_or_default()
@@ -984,6 +981,165 @@ async fn download_inner(
         let _ = db.delete_segments(&id.to_string());
         Vec::new()
     };
+
+    // ── Pre-flight Remote Resource Identity Validation (RFC 9110) ─────────
+    let saved_validators = db.load_validators(&id.to_string()).ok().flatten();
+
+    if !saved_segments.is_empty() {
+        if let Some(val) = saved_validators {
+            match val.selected_type.as_deref() {
+                Some("etag") => {
+                    let Some(ref expected_etag) = val.etag else {
+                        let _ = db.delete_segments(&id.to_string());
+                        let _ = db.delete_validators(&id.to_string());
+                        let _ = tokio::fs::remove_file(&dest_path).await;
+                        return Err(DownloadError::ResourceChanged(
+                            "Saved ETag validator missing in database".into(),
+                        )
+                        .into());
+                    };
+
+                    let Some(ref curr_etag) = current_etag else {
+                        let _ = db.delete_segments(&id.to_string());
+                        let _ = db.delete_validators(&id.to_string());
+                        let _ = tokio::fs::remove_file(&dest_path).await;
+                        return Err(DownloadError::ResourceChanged(
+                            "Remote resource no longer provides an ETag to establish identity"
+                                .into(),
+                        )
+                        .into());
+                    };
+
+                    if !crate::multiplexer::etag_matches(expected_etag, curr_etag) {
+                        let _ = db.delete_segments(&id.to_string());
+                        let _ = db.delete_validators(&id.to_string());
+                        let _ = tokio::fs::remove_file(&dest_path).await;
+                        return Err(DownloadError::ResourceChanged(format!(
+                            "Remote resource ETag changed: expected '{}', got '{}'",
+                            expected_etag, curr_etag
+                        ))
+                        .into());
+                    }
+                }
+                Some("last_modified") => {
+                    let Some(ref expected_lm) = val.last_modified else {
+                        let _ = db.delete_segments(&id.to_string());
+                        let _ = db.delete_validators(&id.to_string());
+                        let _ = tokio::fs::remove_file(&dest_path).await;
+                        return Err(DownloadError::ResourceChanged(
+                            "Saved Last-Modified validator missing in database".into(),
+                        )
+                        .into());
+                    };
+
+                    let Some(ref curr_lm) = current_last_modified else {
+                        let _ = db.delete_segments(&id.to_string());
+                        let _ = db.delete_validators(&id.to_string());
+                        let _ = tokio::fs::remove_file(&dest_path).await;
+                        return Err(DownloadError::ResourceChanged(
+                            "Remote resource no longer provides Last-Modified to establish identity".into(),
+                        )
+                        .into());
+                    };
+
+                    if expected_lm.trim() != curr_lm.trim() {
+                        let _ = db.delete_segments(&id.to_string());
+                        let _ = db.delete_validators(&id.to_string());
+                        let _ = tokio::fs::remove_file(&dest_path).await;
+                        return Err(DownloadError::ResourceChanged(format!(
+                            "Remote resource Last-Modified changed: expected '{}', got '{}'",
+                            expected_lm, curr_lm
+                        ))
+                        .into());
+                    }
+                    // Requirement 1: Do NOT treat a different/new ETag as contradictory when the selected validator is Last-Modified.
+                }
+                _ => {
+                    if let Some(ref expected_etag) = val.etag {
+                        if let Some(ref curr_etag) = current_etag {
+                            if !crate::multiplexer::etag_matches(expected_etag, curr_etag) {
+                                let _ = db.delete_segments(&id.to_string());
+                                let _ = db.delete_validators(&id.to_string());
+                                let _ = tokio::fs::remove_file(&dest_path).await;
+                                return Err(DownloadError::ResourceChanged(format!(
+                                    "Remote resource ETag changed: expected '{}', got '{}'",
+                                    expected_etag, curr_etag
+                                ))
+                                .into());
+                            }
+                        } else {
+                            let _ = db.delete_segments(&id.to_string());
+                            let _ = db.delete_validators(&id.to_string());
+                            let _ = tokio::fs::remove_file(&dest_path).await;
+                            return Err(DownloadError::ResourceChanged(
+                                "Remote resource no longer provides an ETag to establish identity"
+                                    .into(),
+                            )
+                            .into());
+                        }
+                    } else if let Some(ref expected_lm) = val.last_modified {
+                        if let Some(ref curr_lm) = current_last_modified {
+                            if expected_lm.trim() != curr_lm.trim() {
+                                let _ = db.delete_segments(&id.to_string());
+                                let _ = db.delete_validators(&id.to_string());
+                                let _ = tokio::fs::remove_file(&dest_path).await;
+                                return Err(DownloadError::ResourceChanged(format!(
+                                    "Remote resource Last-Modified changed: expected '{}', got '{}'",
+                                    expected_lm, curr_lm
+                                ))
+                                .into());
+                            }
+                        } else {
+                            let _ = db.delete_segments(&id.to_string());
+                            let _ = db.delete_validators(&id.to_string());
+                            let _ = tokio::fs::remove_file(&dest_path).await;
+                            return Err(DownloadError::ResourceChanged(
+                                "Remote resource no longer provides Last-Modified to establish identity".into(),
+                            )
+                            .into());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Allocate / Reset disk space ───────────────────────────────────────
+    // If starting fresh (no saved segments), recreate/truncate any existing file
+    // so bytes from the old resource can NEVER survive into the new download.
+    if saved_segments.is_empty() && dest_path.exists() {
+        let _ = tokio::fs::remove_file(&dest_path).await;
+    }
+
+    if total_bytes > 0 {
+        if !dest_path.exists() {
+            emit(tx, id, |p| p.state = TaskState::Allocating);
+            allocate_file_space(&dest_path, total_bytes).await?;
+        }
+    } else if !dest_path.exists() {
+        // Unknown size — create empty file, will grow as we write
+        std::fs::File::create(&dest_path)?;
+    }
+
+    // ── Select and Persist Resource Identity Validator ────────────────────
+    let selected_if_range = crate::multiplexer::select_if_range_validator(
+        current_etag.as_deref(),
+        current_last_modified.as_deref(),
+        current_date.as_deref(),
+    );
+
+    let selected_type_str = match &selected_if_range {
+        Some(crate::multiplexer::SelectedValidator::ETag(_)) => Some("etag"),
+        Some(crate::multiplexer::SelectedValidator::LastModified(_)) => Some("last_modified"),
+        None => None,
+    };
+
+    let _ = db.save_validators(
+        &id.to_string(),
+        selected_type_str,
+        current_etag.as_deref(),
+        current_last_modified.as_deref(),
+    );
 
     // ── Calculate initial chunks ──────────────────────────────────────────
     emit(tx, id, |p| p.state = TaskState::Downloading);
@@ -1005,11 +1161,16 @@ async fn download_inner(
                     error_message: None,
                     current_offset: c.bytes_written,
                     steal_tx: None,
+                    if_range: selected_if_range.clone(),
                 }
             })
             .collect::<Vec<_>>()
     } else if accepts_ranges && total_bytes > 0 {
-        calculate_chunks(total_bytes, max_connections)?
+        let mut chs = calculate_chunks(total_bytes, max_connections)?;
+        for c in &mut chs {
+            c.if_range = selected_if_range.clone();
+        }
+        chs
     } else {
         // Single-stream fallback
         vec![crate::multiplexer::Chunk {
@@ -1027,6 +1188,7 @@ async fn download_inner(
             error_message: None,
             current_offset: 0,
             steal_tx: None,
+            if_range: None,
         }]
     };
 
@@ -1072,6 +1234,7 @@ async fn download_inner(
                 error_message: None,
                 current_offset: 0,
                 steal_tx: None,
+                if_range: chunk.if_range.clone(),
             }
         })
         .collect();
@@ -1421,6 +1584,7 @@ async fn download_inner(
                             let _ = std::fs::remove_file(&dest_path);
                         }
                         let _ = db.delete_segments(&id.to_string());
+                        let _ = db.delete_validators(&id.to_string());
                         return Err(DownloadError::Cancelled.into());
                     }
                     Err(_) => {} // sender dropped — continue normally
@@ -1434,6 +1598,18 @@ async fn download_inner(
     let writer_res = writer_fut.await?;
 
     if let Err(e) = bridge_res {
+        let err_str = e.to_string();
+        if err_str.contains("remote resource identity condition failed")
+            || err_str.contains("ETag mismatch")
+            || err_str.contains("Last-Modified mismatch")
+            || err_str.contains("unexpected HTTP status 200")
+        {
+            let _ = db.delete_segments(&id.to_string());
+            let _ = db.delete_validators(&id.to_string());
+            let _ = tokio::fs::remove_file(&dest_path).await;
+            return Err(DownloadError::ResourceChanged(err_str).into());
+        }
+
         let active_chunks = mux_chunks.lock().await;
         if let Ok(ref stats) = writer_res {
             for chunk in active_chunks.iter() {
@@ -1559,6 +1735,7 @@ async fn download_inner(
 
     // Clean up segment tracking in SQLite only after 100% verified completeness
     let _ = db.delete_segments(&id.to_string());
+    let _ = db.delete_validators(&id.to_string());
 
     let guard = chunk_bytes.read().await;
     let total_done = already_downloaded + guard.iter().sum::<u64>();

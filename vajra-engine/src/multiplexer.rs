@@ -63,6 +63,24 @@ pub struct StealRequest {
     pub response_tx: tokio::sync::oneshot::Sender<Option<(u64, u64)>>,
 }
 
+/// Strongly-typed validator selected for remote resource identity validation.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SelectedValidator {
+    /// Strong HTTP Entity Tag (RFC 9110: does not start with W/ or w/).
+    ETag(String),
+    /// Strong HTTP Date (RFC 9110: at least 60s older than Date header / current time).
+    LastModified(String),
+}
+
+impl SelectedValidator {
+    pub fn as_header_value(&self) -> &str {
+        match self {
+            SelectedValidator::ETag(s) => s.as_str(),
+            SelectedValidator::LastModified(s) => s.as_str(),
+        }
+    }
+}
+
 /// A single byte-range segment of the target file.
 #[derive(Debug, Clone)]
 pub struct Chunk {
@@ -83,6 +101,8 @@ pub struct Chunk {
     /// How many bytes have been successfully emitted so far for this chunk.
     pub current_offset: u64,
     pub steal_tx: Option<tokio::sync::mpsc::Sender<StealRequest>>,
+    /// Selected resource identity validator used with HTTP `If-Range`.
+    pub if_range: Option<SelectedValidator>,
 }
 
 /// A single streaming data frame delivered through the mpsc channel.
@@ -110,8 +130,12 @@ pub enum MultiplexerError {
     },
 
     /// The server returned an unexpected HTTP status code (not 2xx / 206).
-    #[error("chunk {chunk_id} received unexpected HTTP status {status}")]
-    HttpStatus { chunk_id: usize, status: u16 },
+    #[error("chunk {chunk_id} received unexpected HTTP status {status}: {message}")]
+    HttpStatus {
+        chunk_id: usize,
+        status: u16,
+        message: String,
+    },
 
     /// `max_connections` or `total_size` was zero.
     #[error("invalid argument: {0}")]
@@ -207,6 +231,7 @@ pub fn calculate_chunks(
             error_message: None,
             current_offset: 0,
             steal_tx: None,
+            if_range: None,
         });
         offset += size;
     }
@@ -253,6 +278,10 @@ pub async fn steal_from_slowest(shared: &Arc<Mutex<Vec<Chunk>>>) -> Option<Chunk
     if let Ok(Some((midpoint, original_end_byte))) = response_rx.await {
         let mut guard = shared.lock().await;
         let new_id = guard.iter().map(|c| c.id).max().map(|m| m + 1).unwrap_or(0);
+        let donor_if_range = guard
+            .iter()
+            .find(|c| c.id == _chunk_id)
+            .and_then(|c| c.if_range.clone());
         // Create the new chunk for the stolen part (midpoint → original end)
         let new_chunk = Chunk {
             id: new_id,
@@ -265,6 +294,7 @@ pub async fn steal_from_slowest(shared: &Arc<Mutex<Vec<Chunk>>>) -> Option<Chunk
             error_message: None,
             current_offset: 0,
             steal_tx: None,
+            if_range: donor_if_range,
         };
         guard.push(new_chunk.clone());
         Some(new_chunk)
@@ -439,6 +469,73 @@ pub fn parse_content_range_total(header_val: &str) -> Option<u64> {
     }
 }
 
+/// Compare two ETags according to RFC 9110.
+///
+/// Strips optional surrounding quotes and whitespace.
+pub fn etag_matches(a: &str, b: &str) -> bool {
+    let a_clean = a.trim();
+    let b_clean = b.trim();
+    if a_clean == b_clean {
+        return true;
+    }
+    let a_unquoted = a_clean
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(a_clean);
+    let b_unquoted = b_clean
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(b_clean);
+    a_unquoted == b_unquoted
+}
+
+/// Determines whether an HTTP ETag is strong according to RFC 9110 Section 8.8.1.
+///
+/// Weak entity tags begin with case-insensitive `W/`.
+pub fn is_etag_strong(etag: &str) -> bool {
+    let s = etag.trim();
+    !s.is_empty() && !s.starts_with("W/") && !s.starts_with("w/")
+}
+
+/// Evaluates whether a Last-Modified header is a strong validator according to RFC 9110 Section 8.8.2.2.
+///
+/// A Last-Modified date is strong if and only if it is at least 60 seconds prior to the message origination date (`Date` header)
+/// or current clock time.
+pub fn is_last_modified_strong(last_modified: &str, date_header: Option<&str>) -> bool {
+    let Ok(lm) = chrono::DateTime::parse_from_rfc2822(last_modified.trim()) else {
+        return false;
+    };
+    let date = date_header
+        .and_then(|dh| chrono::DateTime::parse_from_rfc2822(dh.trim()).ok())
+        .unwrap_or_else(|| chrono::Utc::now().into());
+
+    let diff = date.signed_duration_since(lm);
+    diff >= chrono::Duration::seconds(60)
+}
+
+/// Selects the appropriate validator for use in `If-Range` requests per RFC 9110.
+///
+/// - If a strong ETag exists, returns `SelectedValidator::ETag`.
+/// - If ETag is weak/absent but Last-Modified is strong (>= 60s before Date), returns `SelectedValidator::LastModified`.
+/// - Otherwise returns None.
+pub fn select_if_range_validator(
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+    date_header: Option<&str>,
+) -> Option<SelectedValidator> {
+    if let Some(etag_str) = etag {
+        if is_etag_strong(etag_str) {
+            return Some(SelectedValidator::ETag(etag_str.trim().to_string()));
+        }
+    }
+    if let Some(lm_str) = last_modified {
+        if is_last_modified_strong(lm_str, date_header) {
+            return Some(SelectedValidator::LastModified(lm_str.trim().to_string()));
+        }
+    }
+    None
+}
+
 /// Execute one chunk's download loop with exponential-backoff retries.
 ///
 /// Streams each network frame directly into `tx` without accumulating the
@@ -521,14 +618,18 @@ async fn run_chunk(
         // ── Send the range request ────────────────────────────────────────
         let request = client.get(&current_url);
         let request = if chunk.ranged {
-            request.header(
+            let mut req = request.header(
                 header::RANGE,
                 format!(
                     "bytes={}-{}",
                     chunk.start_byte + bytes_emitted,
                     local_end_byte
                 ),
-            )
+            );
+            if let Some(ref val) = chunk.if_range {
+                req = req.header(header::IF_RANGE, val.as_header_value());
+            }
+            req
         } else {
             request
         };
@@ -546,16 +647,25 @@ async fn run_chunk(
 
         if chunk.ranged {
             if status == reqwest::StatusCode::OK {
-                let msg = format!(
-                    "HTTP 200 OK received for ranged chunk {} (requested {}-{}), expected 206 Partial Content",
-                    chunk.id,
-                    chunk.start_byte + bytes_emitted,
-                    local_end_byte
-                );
-                set_error_message(shared, chunk.id, Some(msg)).await;
+                let msg = if let Some(ref val) = chunk.if_range {
+                    format!(
+                        "HTTP 200 OK received for ranged chunk {} carrying If-Range '{}': remote resource identity condition failed",
+                        chunk.id,
+                        val.as_header_value()
+                    )
+                } else {
+                    format!(
+                        "HTTP 200 OK received for ranged chunk {} (requested {}-{}), expected 206 Partial Content",
+                        chunk.id,
+                        chunk.start_byte + bytes_emitted,
+                        local_end_byte
+                    )
+                };
+                set_error_message(shared, chunk.id, Some(msg.clone())).await;
                 return Err(MultiplexerError::HttpStatus {
                     chunk_id: chunk.id,
                     status: 200,
+                    message: msg,
                 });
             }
 
@@ -579,10 +689,11 @@ async fn run_chunk(
                         local_end_byte
                     )
                 };
-                set_error_message(shared, chunk.id, Some(msg)).await;
+                set_error_message(shared, chunk.id, Some(msg.clone())).await;
                 return Err(MultiplexerError::HttpStatus {
                     chunk_id: chunk.id,
                     status: 416,
+                    message: msg,
                 });
             }
 
@@ -592,11 +703,58 @@ async fn run_chunk(
                     status.as_u16(),
                     chunk.id
                 );
-                set_error_message(shared, chunk.id, Some(msg)).await;
+                set_error_message(shared, chunk.id, Some(msg.clone())).await;
                 return Err(MultiplexerError::HttpStatus {
                     chunk_id: chunk.id,
                     status: status.as_u16(),
+                    message: msg,
                 });
+            }
+
+            // Validate response headers against selected If-Range validator without cross-type confusion
+            if let Some(ref selected) = chunk.if_range {
+                match selected {
+                    SelectedValidator::ETag(expected_etag) => {
+                        if let Some(resp_etag) = response
+                            .headers()
+                            .get(header::ETAG)
+                            .and_then(|v| v.to_str().ok())
+                        {
+                            if !etag_matches(expected_etag, resp_etag) {
+                                let msg = format!(
+                                    "ETag mismatch for chunk {}: expected '{}', server returned '{}'",
+                                    chunk.id, expected_etag, resp_etag
+                                );
+                                set_error_message(shared, chunk.id, Some(msg.clone())).await;
+                                return Err(MultiplexerError::HttpStatus {
+                                    chunk_id: chunk.id,
+                                    status: 206,
+                                    message: msg,
+                                });
+                            }
+                        }
+                    }
+                    SelectedValidator::LastModified(expected_lm) => {
+                        if let Some(resp_lm) = response
+                            .headers()
+                            .get(header::LAST_MODIFIED)
+                            .and_then(|v| v.to_str().ok())
+                        {
+                            if expected_lm.trim() != resp_lm.trim() {
+                                let msg = format!(
+                                    "Last-Modified mismatch for chunk {}: expected '{}', server returned '{}'",
+                                    chunk.id, expected_lm, resp_lm
+                                );
+                                set_error_message(shared, chunk.id, Some(msg.clone())).await;
+                                return Err(MultiplexerError::HttpStatus {
+                                    chunk_id: chunk.id,
+                                    status: 206,
+                                    message: msg,
+                                });
+                            }
+                        }
+                    }
+                }
             }
 
             // Validate Content-Range header
@@ -611,10 +769,11 @@ async fn run_chunk(
                         "HTTP 206 response for chunk {} missing Content-Range header",
                         chunk.id
                     );
-                    set_error_message(shared, chunk.id, Some(msg)).await;
+                    set_error_message(shared, chunk.id, Some(msg.clone())).await;
                     return Err(MultiplexerError::HttpStatus {
                         chunk_id: chunk.id,
                         status: 206,
+                        message: msg,
                     });
                 }
             };
@@ -626,10 +785,11 @@ async fn run_chunk(
                         "Malformed Content-Range header '{content_range_str}' for chunk {}",
                         chunk.id
                     );
-                    set_error_message(shared, chunk.id, Some(msg)).await;
+                    set_error_message(shared, chunk.id, Some(msg.clone())).await;
                     return Err(MultiplexerError::HttpStatus {
                         chunk_id: chunk.id,
                         status: 206,
+                        message: msg,
                     });
                 }
             };
@@ -640,10 +800,11 @@ async fn run_chunk(
                     "Content-Range start mismatch for chunk {}: server sent start {}, expected {}",
                     chunk.id, resp_start, req_start
                 );
-                set_error_message(shared, chunk.id, Some(msg)).await;
+                set_error_message(shared, chunk.id, Some(msg.clone())).await;
                 return Err(MultiplexerError::HttpStatus {
                     chunk_id: chunk.id,
                     status: 206,
+                    message: msg,
                 });
             }
 
@@ -652,10 +813,11 @@ async fn run_chunk(
                     "Content-Range end mismatch for chunk {}: server sent end {}, requested range was {}-{}",
                     chunk.id, resp_end, req_start, local_end_byte
                 );
-                set_error_message(shared, chunk.id, Some(msg)).await;
+                set_error_message(shared, chunk.id, Some(msg.clone())).await;
                 return Err(MultiplexerError::HttpStatus {
                     chunk_id: chunk.id,
                     status: 206,
+                    message: msg,
                 });
             }
 
@@ -666,10 +828,11 @@ async fn run_chunk(
                         "Inconsistent response headers for chunk {}: Content-Length ({}) != Content-Range length ({})",
                         chunk.id, cl, expected_range_len
                     );
-                    set_error_message(shared, chunk.id, Some(msg)).await;
+                    set_error_message(shared, chunk.id, Some(msg.clone())).await;
                     return Err(MultiplexerError::HttpStatus {
                         chunk_id: chunk.id,
                         status: 206,
+                        message: msg,
                     });
                 }
             }
@@ -680,6 +843,7 @@ async fn run_chunk(
                 return Err(MultiplexerError::HttpStatus {
                     chunk_id: chunk.id,
                     status: status.as_u16(),
+                    message: format!("HTTP status {} for non-ranged request", status.as_u16()),
                 });
             }
             expected_in_stream = response.content_length().or_else(|| {
@@ -950,6 +1114,7 @@ mod tests {
             error_message: None,
             current_offset: 0,
             steal_tx: None,
+            if_range: None,
         };
         let header_value = format!("bytes={}-{}", chunk.start_byte, chunk.end_byte);
         assert_eq!(header_value, "bytes=0-1048575");
@@ -968,6 +1133,7 @@ mod tests {
             error_message: None,
             current_offset: 0,
             steal_tx: None,
+            if_range: None,
         };
         let v = format!("bytes={}-{}", chunk.start_byte, chunk.end_byte);
         assert_eq!(v, "bytes=3145728-4194303");

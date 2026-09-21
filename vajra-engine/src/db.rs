@@ -19,6 +19,13 @@ pub struct JobRecord {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct JobValidatorRecord {
+    pub selected_type: Option<String>,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultCredential {
     pub id: String,
@@ -158,6 +165,14 @@ impl Database {
                 FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS job_validators (
+                job_id        TEXT PRIMARY KEY,
+                selected_type TEXT,
+                etag          TEXT,
+                last_modified TEXT,
+                FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS vault_credentials (
                 id           TEXT PRIMARY KEY,
                 domain       TEXT NOT NULL UNIQUE,
@@ -187,6 +202,11 @@ impl Database {
             UPDATE jobs SET state = 'complete' WHERE state = 'completed';
         ",
         )?;
+
+        let _ = self.conn.execute(
+            "ALTER TABLE job_validators ADD COLUMN selected_type TEXT",
+            [],
+        );
 
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS rss_feeds (
@@ -836,6 +856,47 @@ impl Database {
     pub fn delete_redirect(&self, job_id: &str) -> SqlResult<()> {
         self.conn.execute(
             "DELETE FROM job_redirects WHERE job_id = ?1",
+            params![job_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn save_validators(
+        &self,
+        job_id: &str,
+        selected_type: Option<&str>,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+    ) -> SqlResult<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO job_validators (job_id, selected_type, etag, last_modified) VALUES (?1, ?2, ?3, ?4)",
+            params![job_id, selected_type, etag, last_modified],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_validators(&self, job_id: &str) -> SqlResult<Option<JobValidatorRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT selected_type, etag, last_modified FROM job_validators WHERE job_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![job_id])?;
+        if let Some(row) = rows.next()? {
+            let selected_type: Option<String> = row.get(0)?;
+            let etag: Option<String> = row.get(1)?;
+            let last_modified: Option<String> = row.get(2)?;
+            Ok(Some(JobValidatorRecord {
+                selected_type,
+                etag,
+                last_modified,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn delete_validators(&self, job_id: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "DELETE FROM job_validators WHERE job_id = ?1",
             params![job_id],
         )?;
         Ok(())
