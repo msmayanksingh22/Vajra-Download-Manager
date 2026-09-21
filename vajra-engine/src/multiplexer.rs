@@ -44,6 +44,9 @@ pub struct MultiplexerOptions {
     pub base_backoff: Duration,
     pub max_backoff: Duration,
     pub max_retry_after: Duration,
+    pub checkpoint_interval: Duration,
+    pub checkpoint_bytes: u64,
+    pub min_checkpoint_interval: Duration,
 }
 
 impl Default for MultiplexerOptions {
@@ -57,6 +60,9 @@ impl Default for MultiplexerOptions {
             base_backoff: BASE_BACKOFF,
             max_backoff: MAX_BACKOFF,
             max_retry_after: MAX_RETRY_AFTER,
+            checkpoint_interval: DEFAULT_CHECKPOINT_INTERVAL,
+            checkpoint_bytes: DEFAULT_CHECKPOINT_BYTES,
+            min_checkpoint_interval: MIN_CHECKPOINT_INTERVAL,
         }
     }
 }

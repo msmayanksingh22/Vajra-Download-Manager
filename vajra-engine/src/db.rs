@@ -58,6 +58,14 @@ pub struct HistoryEntry {
     pub tags: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SegmentRecord {
+    pub segment_id: usize,
+    pub start_byte: u64,
+    pub end_byte: u64,
+    pub bytes_written: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub default_download_dir: String,
@@ -780,6 +788,39 @@ impl Database {
             })
         })?;
         rows.collect()
+    }
+
+    pub fn save_segments_transactional(
+        &self,
+        job_id: &str,
+        segments: &[SegmentRecord],
+    ) -> SqlResult<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM download_segments WHERE job_id = ?1",
+            params![job_id],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO download_segments (job_id, segment_id, start_byte, end_byte, bytes_written)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for seg in segments {
+                stmt.execute(params![
+                    job_id,
+                    seg.segment_id as i64,
+                    seg.start_byte as i64,
+                    seg.end_byte as i64,
+                    seg.bytes_written as i64,
+                ])?;
+            }
+        }
+        tx.execute(
+            "UPDATE jobs SET updated_at = ?2 WHERE id = ?1",
+            params![job_id, chrono::Utc::now().to_rfc3339()],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn save_segment(

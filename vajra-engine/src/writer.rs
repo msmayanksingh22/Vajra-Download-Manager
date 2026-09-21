@@ -54,6 +54,21 @@ pub struct DataFrame {
     pub payload: Bytes,
 }
 
+/// Commands accepted by the asynchronous disk writer pipeline.
+#[derive(Debug)]
+pub enum WriterCommand {
+    /// Write a payload frame at its designated file offset.
+    Write(DataFrame),
+    /// Flush uncommitted writes to storage and snapshot current writer-confirmed stats.
+    Checkpoint(tokio::sync::oneshot::Sender<WriterStats>),
+}
+
+impl From<DataFrame> for WriterCommand {
+    fn from(frame: DataFrame) -> Self {
+        WriterCommand::Write(frame)
+    }
+}
+
 /// Aggregate metrics collected during a single writer session.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WriterStats {
@@ -276,7 +291,15 @@ impl Drop for MmapHandle {
 
 pub async fn start_disk_writer(
     path: &Path,
-    mut rx: mpsc::Receiver<DataFrame>,
+    rx: mpsc::Receiver<WriterCommand>,
+) -> io::Result<WriterStats> {
+    start_disk_writer_with_counter(path, rx, None).await
+}
+
+pub async fn start_disk_writer_with_counter(
+    path: &Path,
+    mut rx: mpsc::Receiver<WriterCommand>,
+    written_bytes_counter: Option<Arc<std::sync::atomic::AtomicU64>>,
 ) -> io::Result<WriterStats> {
     let file = std::fs::OpenOptions::new()
         .read(true)
@@ -308,41 +331,63 @@ pub async fn start_disk_writer(
     let mut stats = WriterStats::default();
     let mut tracker = WriteTracker::new();
 
-    while let Some(frame) = rx.recv().await {
-        stats.frames_received += 1;
+    while let Some(cmd) = rx.recv().await {
+        match cmd {
+            WriterCommand::Write(frame) => {
+                stats.frames_received += 1;
 
-        if frame.payload.is_empty() {
-            continue;
+                if frame.payload.is_empty() {
+                    continue;
+                }
+
+                let byte_count = frame.payload.len() as u64;
+                let offset = frame.absolute_offset;
+                let payload = frame.payload;
+
+                tracker.check_overlap(offset, byte_count)?;
+                tracker.record_write(offset, byte_count);
+
+                if let Some(ref mmap) = mmap_handle {
+                    mmap.write_at(offset, &payload)?;
+                } else {
+                    let f_arc = Arc::clone(&file_arc);
+                    tokio::task::spawn_blocking(move || write_all_at(&f_arc, &payload, offset))
+                        .await
+                        .map_err(io::Error::other)??;
+                }
+
+                stats.bytes_written += byte_count;
+                *stats.chunk_bytes_written.entry(frame.chunk_id).or_insert(0) += byte_count;
+                if let Some(ref counter) = written_bytes_counter {
+                    counter.fetch_add(byte_count, std::sync::atomic::Ordering::Release);
+                }
+            }
+            WriterCommand::Checkpoint(reply_tx) => {
+                // Sequential durability barrier:
+                // 1. If mmap, flush memory-mapped view (FlushViewOfFile on Windows, msync on Unix).
+                // 2. Explicitly sync file handle and media (FlushFileBuffers on Windows, fdatasync on Unix).
+                // 3. Snapshot WriterStats and reply to download_task before SQLite commits.
+                if let Some(ref mmap) = mmap_handle {
+                    mmap.flush()?;
+                }
+                let f_arc = Arc::clone(&file_arc);
+                tokio::task::spawn_blocking(move || f_arc.sync_data())
+                    .await
+                    .map_err(io::Error::other)??;
+
+                let _ = reply_tx.send(stats.clone());
+            }
         }
-
-        let byte_count = frame.payload.len() as u64;
-        let offset = frame.absolute_offset;
-        let payload = frame.payload;
-
-        tracker.check_overlap(offset, byte_count)?;
-        tracker.record_write(offset, byte_count);
-
-        if let Some(ref mmap) = mmap_handle {
-            mmap.write_at(offset, &payload)?;
-        } else {
-            let f_arc = Arc::clone(&file_arc);
-            tokio::task::spawn_blocking(move || write_all_at(&f_arc, &payload, offset))
-                .await
-                .map_err(io::Error::other)??;
-        }
-
-        stats.bytes_written += byte_count;
-        *stats.chunk_bytes_written.entry(frame.chunk_id).or_insert(0) += byte_count;
     }
 
+    // Final completeness flush: flush mapped view and full file metadata to storage
     if let Some(ref mmap) = mmap_handle {
         mmap.flush()?;
-    } else {
-        let f_arc = Arc::clone(&file_arc);
-        tokio::task::spawn_blocking(move || f_arc.sync_all())
-            .await
-            .map_err(io::Error::other)??;
     }
+    let f_arc = Arc::clone(&file_arc);
+    tokio::task::spawn_blocking(move || f_arc.sync_all())
+        .await
+        .map_err(io::Error::other)??;
 
     Ok(stats)
 }
@@ -480,30 +525,39 @@ mod tests {
         let content = b"The quick brown fox jumps over the lazy dog";
         let tmp = make_preallocated_file(content.len());
 
-        let (tx, rx) = mpsc::channel::<DataFrame>(8);
+        let (tx, rx) = mpsc::channel::<WriterCommand>(8);
 
         // Send the payload in three out-of-order fragments.
-        tx.send(DataFrame {
-            chunk_id: 0,
-            absolute_offset: 16,
-            payload: Bytes::from_static(&content[16..32]),
-        })
+        tx.send(
+            DataFrame {
+                chunk_id: 0,
+                absolute_offset: 16,
+                payload: Bytes::from_static(&content[16..32]),
+            }
+            .into(),
+        )
         .await
         .unwrap();
 
-        tx.send(DataFrame {
-            chunk_id: 0,
-            absolute_offset: 0,
-            payload: Bytes::from_static(&content[0..16]),
-        })
+        tx.send(
+            DataFrame {
+                chunk_id: 0,
+                absolute_offset: 0,
+                payload: Bytes::from_static(&content[0..16]),
+            }
+            .into(),
+        )
         .await
         .unwrap();
 
-        tx.send(DataFrame {
-            chunk_id: 0,
-            absolute_offset: 32,
-            payload: Bytes::copy_from_slice(&content[32..]),
-        })
+        tx.send(
+            DataFrame {
+                chunk_id: 0,
+                absolute_offset: 32,
+                payload: Bytes::copy_from_slice(&content[32..]),
+            }
+            .into(),
+        )
         .await
         .unwrap();
 
@@ -523,30 +577,39 @@ mod tests {
     #[tokio::test]
     async fn writer_skips_empty_frames_and_counts_correctly() {
         let tmp = make_preallocated_file(4);
-        let (tx, rx) = mpsc::channel::<DataFrame>(4);
+        let (tx, rx) = mpsc::channel::<WriterCommand>(4);
 
         // Two empty frames bookending one real frame.
-        tx.send(DataFrame {
-            chunk_id: 0,
-            absolute_offset: 0,
-            payload: Bytes::new(),
-        })
+        tx.send(
+            DataFrame {
+                chunk_id: 0,
+                absolute_offset: 0,
+                payload: Bytes::new(),
+            }
+            .into(),
+        )
         .await
         .unwrap();
 
-        tx.send(DataFrame {
-            chunk_id: 0,
-            absolute_offset: 0,
-            payload: Bytes::from_static(b"DATA"),
-        })
+        tx.send(
+            DataFrame {
+                chunk_id: 0,
+                absolute_offset: 0,
+                payload: Bytes::from_static(b"DATA"),
+            }
+            .into(),
+        )
         .await
         .unwrap();
 
-        tx.send(DataFrame {
-            chunk_id: 0,
-            absolute_offset: 4,
-            payload: Bytes::new(),
-        })
+        tx.send(
+            DataFrame {
+                chunk_id: 0,
+                absolute_offset: 4,
+                payload: Bytes::new(),
+            }
+            .into(),
+        )
         .await
         .unwrap();
 
@@ -563,7 +626,7 @@ mod tests {
     #[tokio::test]
     async fn writer_returns_ok_immediately_on_closed_channel() {
         let tmp = make_preallocated_file(0);
-        let (tx, rx) = mpsc::channel::<DataFrame>(1);
+        let (tx, rx) = mpsc::channel::<WriterCommand>(1);
         drop(tx); // channel already closed
 
         let stats = start_disk_writer(tmp.path(), rx).await.unwrap();
@@ -573,7 +636,7 @@ mod tests {
 
     #[tokio::test]
     async fn writer_returns_error_for_nonexistent_file() {
-        let (tx, rx) = mpsc::channel::<DataFrame>(1);
+        let (tx, rx) = mpsc::channel::<WriterCommand>(1);
         drop(tx);
 
         let result = start_disk_writer(Path::new("/nonexistent/path/to/file.bin"), rx).await;
@@ -588,12 +651,15 @@ mod tests {
         let payload: Vec<u8> = (0u8..=255).cycle().take(size).collect();
         let tmp = make_preallocated_file(size);
 
-        let (tx, rx) = mpsc::channel::<DataFrame>(1);
-        tx.send(DataFrame {
-            chunk_id: 0,
-            absolute_offset: 0,
-            payload: Bytes::from(payload.clone()),
-        })
+        let (tx, rx) = mpsc::channel::<WriterCommand>(1);
+        tx.send(
+            DataFrame {
+                chunk_id: 0,
+                absolute_offset: 0,
+                payload: Bytes::from(payload.clone()),
+            }
+            .into(),
+        )
         .await
         .unwrap();
         drop(tx);
@@ -601,5 +667,132 @@ mod tests {
         let stats = start_disk_writer(tmp.path(), rx).await.unwrap();
         assert_eq!(stats.bytes_written, size as u64);
         assert_eq!(std::fs::read(tmp.path()).unwrap(), payload);
+    }
+
+    #[tokio::test]
+    async fn writer_handles_checkpoint_and_flushes() {
+        let content = b"Checkpoint Test Payload";
+        let tmp = make_preallocated_file(content.len());
+
+        let (tx, rx) = mpsc::channel::<WriterCommand>(8);
+
+        let writer_handle = tokio::spawn({
+            let path = tmp.path().to_path_buf();
+            async move { start_disk_writer(&path, rx).await.unwrap() }
+        });
+
+        // 1. Send first 10 bytes
+        tx.send(
+            DataFrame {
+                chunk_id: 1,
+                absolute_offset: 0,
+                payload: Bytes::from_static(&content[..10]),
+            }
+            .into(),
+        )
+        .await
+        .unwrap();
+
+        // 2. Request checkpoint
+        let (chk_tx, chk_rx) = tokio::sync::oneshot::channel();
+        tx.send(WriterCommand::Checkpoint(chk_tx)).await.unwrap();
+
+        let intermediate_stats = chk_rx.await.unwrap();
+        assert_eq!(intermediate_stats.bytes_written, 10);
+        assert_eq!(
+            intermediate_stats.chunk_bytes_written.get(&1).copied(),
+            Some(10)
+        );
+
+        // Verify intermediate data was flushed to disk
+        let partial_disk = std::fs::read(tmp.path()).unwrap();
+        assert_eq!(&partial_disk[..10], &content[..10]);
+
+        // 3. Send remaining bytes
+        tx.send(
+            DataFrame {
+                chunk_id: 1,
+                absolute_offset: 10,
+                payload: Bytes::from_static(&content[10..]),
+            }
+            .into(),
+        )
+        .await
+        .unwrap();
+
+        drop(tx);
+
+        let final_stats = writer_handle.await.unwrap();
+        assert_eq!(final_stats.bytes_written, content.len() as u64);
+        assert_eq!(
+            final_stats.chunk_bytes_written.get(&1).copied(),
+            Some(content.len() as u64)
+        );
+
+        let full_disk = std::fs::read(tmp.path()).unwrap();
+        assert_eq!(full_disk.as_slice(), content);
+    }
+
+    #[tokio::test]
+    async fn writer_tracks_confirmed_bytes_in_atomic_counter() {
+        let content = b"Atomic Counter Durability Test";
+        let tmp = make_preallocated_file(content.len());
+
+        let (tx, rx) = mpsc::channel::<WriterCommand>(8);
+        let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let counter_clone = Arc::clone(&counter);
+
+        let writer_handle = tokio::spawn({
+            let path = tmp.path().to_path_buf();
+            async move {
+                start_disk_writer_with_counter(&path, rx, Some(counter_clone))
+                    .await
+                    .unwrap()
+            }
+        });
+
+        // 1. Send first half
+        tx.send(
+            DataFrame {
+                chunk_id: 0,
+                absolute_offset: 0,
+                payload: Bytes::from_static(&content[..14]),
+            }
+            .into(),
+        )
+        .await
+        .unwrap();
+
+        // 2. Request checkpoint
+        let (chk_tx, chk_rx) = tokio::sync::oneshot::channel();
+        tx.send(WriterCommand::Checkpoint(chk_tx)).await.unwrap();
+
+        let intermediate_stats = chk_rx.await.unwrap();
+        assert_eq!(intermediate_stats.bytes_written, 14);
+        assert_eq!(counter.load(std::sync::atomic::Ordering::Acquire), 14);
+
+        // 3. Send second half
+        tx.send(
+            DataFrame {
+                chunk_id: 0,
+                absolute_offset: 14,
+                payload: Bytes::from_static(&content[14..]),
+            }
+            .into(),
+        )
+        .await
+        .unwrap();
+
+        drop(tx);
+
+        let final_stats = writer_handle.await.unwrap();
+        assert_eq!(final_stats.bytes_written, content.len() as u64);
+        assert_eq!(
+            counter.load(std::sync::atomic::Ordering::Acquire),
+            content.len() as u64
+        );
+
+        let disk_bytes = std::fs::read(tmp.path()).unwrap();
+        assert_eq!(disk_bytes.as_slice(), content);
     }
 }

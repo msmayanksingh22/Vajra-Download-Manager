@@ -4,7 +4,7 @@ use tempfile::tempdir;
 use tokio::runtime::Runtime;
 use vajra_engine::{
     allocator,
-    writer::{start_disk_writer, DataFrame},
+    writer::{start_disk_writer, DataFrame, WriterCommand},
 };
 
 fn bench_allocate_file_space(c: &mut Criterion) {
@@ -48,7 +48,7 @@ fn bench_chunk_merge(c: &mut Criterion) {
                 .await
                 .unwrap();
 
-            let (tx, rx) = tokio::sync::mpsc::channel(256);
+            let (tx, rx) = tokio::sync::mpsc::channel::<WriterCommand>(256);
 
             let file_path_clone = file_path.clone();
 
@@ -63,11 +63,11 @@ fn bench_chunk_merge(c: &mut Criterion) {
                 // Pre-allocated zeros
                 let payload = Bytes::from(vec![0u8; frame_len as usize]);
 
-                tx.send(DataFrame {
+                tx.send(WriterCommand::Write(DataFrame {
                     chunk_id: 0,
                     absolute_offset: offset,
                     payload,
-                })
+                }))
                 .await
                 .unwrap();
 

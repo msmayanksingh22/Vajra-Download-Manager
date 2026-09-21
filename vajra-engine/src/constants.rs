@@ -19,3 +19,6 @@ pub const FLUSH_TICK_MS: u64 = 250;
 pub const MAX_SPIDER_DEPTH: u32 = 3;
 pub const MAX_SPIDER_PAGES: usize = 500;
 pub const SSE_CHANNEL_CAPACITY: usize = 256;
+pub const DEFAULT_CHECKPOINT_INTERVAL: Duration = Duration::from_secs(5);
+pub const DEFAULT_CHECKPOINT_BYTES: u64 = 10 * 1024 * 1024;
+pub const MIN_CHECKPOINT_INTERVAL: Duration = Duration::from_millis(1000);

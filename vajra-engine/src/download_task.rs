@@ -35,7 +35,7 @@ use crate::{
         calculate_chunks, start_download_with_options, ChunkPayload, DEFAULT_CHANNEL_CAPACITY,
     },
     throttle::{CombinedThrottle, Throttle},
-    writer::{start_disk_writer, DataFrame},
+    writer::{start_disk_writer_with_counter, DataFrame, WriterCommand},
 };
 
 /// A download request submitted by the frontend or extension.
@@ -180,6 +180,8 @@ pub struct DownloadTask {
     pub progress_rx: watch::Receiver<DownloadProgress>,
     /// Send a pause/cancel signal to the active download loop.
     control_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<ControlSignal>>>>,
+    join_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    subtask_abort_handles: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
 }
 
 pub enum ControlSignal {
@@ -260,11 +262,13 @@ impl DownloadTask {
         let (progress_tx, progress_rx) = watch::channel(initial_progress);
         let (ctrl_tx, ctrl_rx) = tokio::sync::oneshot::channel::<ControlSignal>();
         let ctrl_tx = Arc::new(Mutex::new(Some(ctrl_tx)));
+        let subtask_abort_handles = Arc::new(Mutex::new(Vec::new()));
+        let subtasks_clone = Arc::clone(&subtask_abort_handles);
 
         // Spawn background work
         let req = request.clone();
-        tokio::spawn(async move {
-            run_download(id, req, progress_tx, ctrl_rx).await;
+        let handle = tokio::spawn(async move {
+            run_download(id, req, progress_tx, ctrl_rx, subtasks_clone).await;
         });
 
         DownloadTask {
@@ -272,6 +276,8 @@ impl DownloadTask {
             request,
             progress_rx,
             control_tx: ctrl_tx,
+            join_handle: Arc::new(Mutex::new(Some(handle))),
+            subtask_abort_handles,
         }
     }
 
@@ -320,6 +326,8 @@ impl DownloadTask {
             request,
             progress_rx,
             control_tx: Arc::new(Mutex::new(None)),
+            join_handle: Arc::new(Mutex::new(None)),
+            subtask_abort_handles: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -339,6 +347,36 @@ impl DownloadTask {
         }
     }
 
+    /// Genuinely terminate/abort the download task and all background subtasks in a deterministic
+    /// test-safe manner, simulating an abrupt crash without running normal pause/drain cleanup or mutating
+    /// the file further.
+    pub async fn abort_for_test(&self) {
+        // 1. Abort any registered subtask handles (writer, bridge, network workers)
+        let subtasks = {
+            let mut reg = self.subtask_abort_handles.lock().await;
+            std::mem::take(&mut *reg)
+        };
+        for h in subtasks {
+            h.abort();
+        }
+
+        // 2. Abort the top-level task handle and await its termination
+        let mut lock = self.join_handle.lock().await;
+        if let Some(handle) = lock.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
+
+    /// Check whether the underlying task future has terminated.
+    pub async fn is_finished(&self) -> bool {
+        let lock = self.join_handle.lock().await;
+        match lock.as_ref() {
+            Some(h) => h.is_finished(),
+            None => true,
+        }
+    }
+
     /// Convenience: current progress snapshot.
     pub fn progress(&self) -> DownloadProgress {
         self.progress_rx.borrow().clone()
@@ -352,6 +390,7 @@ async fn run_download(
     req: DownloadRequest,
     tx: watch::Sender<DownloadProgress>,
     mut ctrl: tokio::sync::oneshot::Receiver<ControlSignal>,
+    subtask_abort_handles: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
 ) {
     let result = if req.url.starts_with("magnet:?") || req.url.ends_with(".torrent") {
         crate::torrent_task::start_torrent(
@@ -370,7 +409,7 @@ async fn run_download(
     } else if req.url.starts_with("ftp://") || req.url.starts_with("ftps://") {
         crate::ftp_task::download_ftp(id, &req, &tx, &mut ctrl).await
     } else {
-        download_inner(id, &req, &tx, &mut ctrl).await
+        download_inner(id, &req, &tx, &mut ctrl, subtask_abort_handles).await
     };
 
     // Publish terminal state
@@ -586,6 +625,7 @@ async fn download_inner(
     req: &DownloadRequest,
     tx: &watch::Sender<DownloadProgress>,
     ctrl: &mut tokio::sync::oneshot::Receiver<ControlSignal>,
+    subtask_abort_handles: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
 ) -> anyhow::Result<u64> {
     use anyhow::bail;
 
@@ -1143,7 +1183,8 @@ async fn download_inner(
     }
 
     if total_bytes > 0 {
-        if !dest_path.exists() {
+        let current_len = std::fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0);
+        if !dest_path.exists() || current_len < total_bytes {
             emit(tx, id, |p| p.state = TaskState::Allocating);
             allocate_file_space(&dest_path, total_bytes).await?;
         }
@@ -1320,7 +1361,9 @@ async fn download_inner(
     // Per-chunk byte counters for progress (stored behind RwLock so bridge + speed sampler share)
     let chunk_bytes: Arc<RwLock<Vec<u64>>> = Arc::new(RwLock::new(vec![0; num_chunks]));
 
-    let (writer_tx, writer_rx) = tokio::sync::mpsc::channel::<DataFrame>(WRITER_CHANNEL_CAPACITY);
+    let (writer_tx, writer_rx) =
+        tokio::sync::mpsc::channel::<WriterCommand>(WRITER_CHANNEL_CAPACITY);
+    let mut writer_tx_checkpoint = Some(writer_tx.clone());
 
     // ── Start multiplexed download ────────────────────────────────────────
     let mut mirror_urls = vec![final_url.clone()];
@@ -1337,13 +1380,26 @@ async fn download_inner(
     }
     mux_options.channel_capacity = DEFAULT_CHANNEL_CAPACITY;
 
-    let mux_handle =
-        start_download_with_options(primary_client, mirror_manager, all_chunks, mux_options);
+    let mux_handle = start_download_with_options(
+        primary_client,
+        mirror_manager,
+        all_chunks,
+        mux_options.clone(),
+    );
     let crate::multiplexer::DownloadHandle {
         receiver: mut mux_rx,
         chunks: mux_chunks,
         abort_handles: mux_abort_handles,
     } = mux_handle;
+
+    let copied_mux_handles = mux_abort_handles
+        .lock()
+        .map(|h| h.clone())
+        .unwrap_or_default();
+    {
+        let mut reg = subtask_abort_handles.lock().await;
+        reg.extend(copied_mux_handles);
+    }
 
     // ── Bridge task (mux → writer) with RAM-buffered I/O (Phase 3C) ──────
     let chunk_bytes_bridge = Arc::clone(&chunk_bytes);
@@ -1363,7 +1419,7 @@ async fn download_inner(
         async fn flush_one(
             chunk_id: usize,
             buf_map: &mut HashMap<usize, (u64, Vec<u8>)>,
-            writer_tx: &tokio::sync::mpsc::Sender<DataFrame>,
+            writer_tx: &tokio::sync::mpsc::Sender<WriterCommand>,
         ) -> anyhow::Result<()> {
             if let Some((offset, data)) = buf_map.remove(&chunk_id) {
                 if !data.is_empty() {
@@ -1372,7 +1428,7 @@ async fn download_inner(
                         absolute_offset: offset,
                         payload: bytes::Bytes::from(data),
                     };
-                    if writer_tx.send(frame).await.is_err() {
+                    if writer_tx.send(WriterCommand::Write(frame)).await.is_err() {
                         anyhow::bail!("Writer channel closed");
                     }
                 }
@@ -1450,18 +1506,58 @@ async fn download_inner(
     });
 
     // ── Writer task ───────────────────────────────────────────────────────
+    let writer_bytes_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let writer_bytes_counter_clone = Arc::clone(&writer_bytes_counter);
     let dest_for_writer = dest_path.clone();
     let writer_fut = tokio::spawn(async move {
-        start_disk_writer(&dest_for_writer, writer_rx)
-            .await
-            .map_err(|e| anyhow::anyhow!("Write failed: {e}"))
+        start_disk_writer_with_counter(
+            &dest_for_writer,
+            writer_rx,
+            Some(writer_bytes_counter_clone),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Write failed: {e}"))
     });
+
+    {
+        let mut reg = subtask_abort_handles.lock().await;
+        reg.push(bridge.abort_handle());
+        reg.push(writer_fut.abort_handle());
+    }
+
+    struct SubtaskGuard {
+        bridge: tokio::task::AbortHandle,
+        writer: tokio::task::AbortHandle,
+        mux_abort_handles: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
+    }
+    impl Drop for SubtaskGuard {
+        fn drop(&mut self) {
+            self.bridge.abort();
+            self.writer.abort();
+            if let Ok(handles) = self.mux_abort_handles.lock() {
+                for h in handles.iter() {
+                    h.abort();
+                }
+            }
+        }
+    }
+    let _subtask_guard = SubtaskGuard {
+        bridge: bridge.abort_handle(),
+        writer: writer_fut.abort_handle(),
+        mux_abort_handles: Arc::clone(&mux_abort_handles),
+    };
 
     // ── Progress + control polling loop ───────────────────────────────────
     let mut speed_window = SpeedWindow::new();
     let mut segment_speed_windows: Vec<SpeedWindow> =
         (0..num_chunks).map(|_| SpeedWindow::new()).collect();
     let mut ticker = tokio::time::interval(Duration::from_millis(250));
+
+    let checkpoint_interval = mux_options.checkpoint_interval;
+    let checkpoint_bytes_threshold = mux_options.checkpoint_bytes;
+    let min_checkpoint_interval = mux_options.min_checkpoint_interval;
+    let mut last_checkpoint_time = Instant::now();
+    let mut last_checkpoint_bytes = already_downloaded;
 
     loop {
         tokio::select! {
@@ -1549,8 +1645,67 @@ async fn download_inner(
                     p.segments = segments;
                 });
 
+                // Periodic checkpoint persistence (strictly writer-confirmed progress)
+                let elapsed = last_checkpoint_time.elapsed();
+                let writer_confirmed_bytes =
+                    already_downloaded + writer_bytes_counter.load(Ordering::Acquire);
+                let bytes_since = writer_confirmed_bytes.saturating_sub(last_checkpoint_bytes);
+                if (elapsed >= checkpoint_interval || bytes_since >= checkpoint_bytes_threshold)
+                    && elapsed >= min_checkpoint_interval
+                {
+                    if let Some(ref tx_chk) = writer_tx_checkpoint {
+                        let (chk_tx, chk_rx) = tokio::sync::oneshot::channel();
+                        if tx_chk.send(WriterCommand::Checkpoint(chk_tx)).await.is_ok() {
+                            if let Ok(writer_stats) = chk_rx.await {
+                                let active_chunks = mux_chunks.lock().await;
+                                let mut segments_to_save: Vec<crate::db::SegmentRecord> = Vec::new();
+                                let mut confirmed_checkpoint_total = 0_u64;
+
+                                for chunk in active_chunks.iter() {
+                                    let session_written = writer_stats
+                                        .chunk_bytes_written
+                                        .get(&chunk.id)
+                                        .copied()
+                                        .unwrap_or(0);
+                                    let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
+                                    let chunk_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
+                                    let total_chunk_written = initial_written.saturating_add(session_written).min(chunk_size);
+                                    confirmed_checkpoint_total = confirmed_checkpoint_total.saturating_add(total_chunk_written);
+
+                                    segments_to_save.push(crate::db::SegmentRecord {
+                                        segment_id: chunk.id,
+                                        start_byte: chunk.original_start_byte,
+                                        end_byte: chunk.end_byte,
+                                        bytes_written: total_chunk_written,
+                                    });
+                                }
+
+                                for chunk in chunks.iter() {
+                                    if !active_chunks.iter().any(|ac| ac.id == chunk.id) {
+                                        let chunk_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
+                                        let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0).min(chunk_size);
+                                        confirmed_checkpoint_total = confirmed_checkpoint_total.saturating_add(initial_written);
+                                        segments_to_save.push(crate::db::SegmentRecord {
+                                            segment_id: chunk.id,
+                                            start_byte: chunk.original_start_byte,
+                                            end_byte: chunk.end_byte,
+                                            bytes_written: initial_written,
+                                        });
+                                    }
+                                }
+                                drop(active_chunks);
+
+                                let _ = db.save_segments_transactional(&id.to_string(), &segments_to_save);
+                                last_checkpoint_time = Instant::now();
+                                last_checkpoint_bytes = confirmed_checkpoint_total;
+                            }
+                        }
+                    }
+                }
+
                 // Check if both tasks finished
                 if bridge.is_finished() {
+                    drop(writer_tx_checkpoint.take()); // Drop sender clone so writer task can drain and exit
                     if let Ok(handles) = mux_abort_handles.lock() {
                         for h in handles.iter() {
                             h.abort();
@@ -1565,6 +1720,8 @@ async fn download_inner(
             signal = &mut *ctrl => {
                 match signal {
                     Ok(ControlSignal::Pause) => {
+                        drop(writer_tx_checkpoint.take()); // Drop checkpoint sender clone
+
                         // 1. Signal bridge to drain remaining frames without throttling
                         drain_now.store(true, Ordering::SeqCst);
 
@@ -1588,6 +1745,7 @@ async fn download_inner(
                         // 5. Update SQLite segments with STRICTLY writer-confirmed bytes
                         let active_chunks = mux_chunks.lock().await;
                         let mut total_confirmed_written = 0_u64;
+                        let mut segments_to_save: Vec<crate::db::SegmentRecord> = Vec::new();
 
                         for chunk in active_chunks.iter() {
                             let session_written = writer_stats
@@ -1596,27 +1754,35 @@ async fn download_inner(
                                 .unwrap_or(0);
 
                             let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
-
-                            let total_chunk_written = initial_written.saturating_add(session_written);
+                            let chunk_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
+                            let total_chunk_written = initial_written.saturating_add(session_written).min(chunk_size);
                             total_confirmed_written = total_confirmed_written.saturating_add(total_chunk_written);
 
-                            let _ = db.save_segment(
-                                &id.to_string(),
-                                chunk.id,
-                                chunk.original_start_byte,
-                                chunk.end_byte,
-                                total_chunk_written,
-                            );
+                            segments_to_save.push(crate::db::SegmentRecord {
+                                segment_id: chunk.id,
+                                start_byte: chunk.original_start_byte,
+                                end_byte: chunk.end_byte,
+                                bytes_written: total_chunk_written,
+                            });
                         }
 
                         // Also account for any chunks that were already complete before this session
                         for chunk in chunks.iter() {
                             if !active_chunks.iter().any(|ac| ac.id == chunk.id) {
-                                let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
+                                let chunk_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
+                                let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0).min(chunk_size);
                                 total_confirmed_written = total_confirmed_written.saturating_add(initial_written);
+                                segments_to_save.push(crate::db::SegmentRecord {
+                                    segment_id: chunk.id,
+                                    start_byte: chunk.original_start_byte,
+                                    end_byte: chunk.end_byte,
+                                    bytes_written: initial_written,
+                                });
                             }
                         }
                         drop(active_chunks);
+
+                        let _ = db.save_segments_transactional(&id.to_string(), &segments_to_save);
 
                         // 6. Update UI progress to strictly writer-confirmed progress
                         emit(tx, id, |p| {
@@ -1627,6 +1793,7 @@ async fn download_inner(
                         return Err(DownloadError::Paused.into());
                     }
                     Ok(ControlSignal::Cancel) => {
+                        drop(writer_tx_checkpoint.take());
                         if let Ok(handles) = mux_abort_handles.lock() {
                             for h in handles.iter() {
                                 h.abort();
@@ -1668,6 +1835,7 @@ async fn download_inner(
 
         let active_chunks = mux_chunks.lock().await;
         if let Ok(ref stats) = writer_res {
+            let mut segments_to_save: Vec<crate::db::SegmentRecord> = Vec::new();
             for chunk in active_chunks.iter() {
                 let session_written = stats
                     .chunk_bytes_written
@@ -1675,15 +1843,36 @@ async fn download_inner(
                     .copied()
                     .unwrap_or(0);
                 let initial_written = resumed_bytes.get(&chunk.id).copied().unwrap_or(0);
-                let _ = db.save_segment(
-                    &id.to_string(),
-                    chunk.id,
-                    chunk.original_start_byte,
-                    chunk.end_byte,
-                    initial_written.saturating_add(session_written),
-                );
+                let chunk_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
+                let total_chunk_written = initial_written
+                    .saturating_add(session_written)
+                    .min(chunk_size);
+                segments_to_save.push(crate::db::SegmentRecord {
+                    segment_id: chunk.id,
+                    start_byte: chunk.original_start_byte,
+                    end_byte: chunk.end_byte,
+                    bytes_written: total_chunk_written,
+                });
             }
+            for chunk in chunks.iter() {
+                if !active_chunks.iter().any(|ac| ac.id == chunk.id) {
+                    let chunk_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
+                    let initial_written = resumed_bytes
+                        .get(&chunk.id)
+                        .copied()
+                        .unwrap_or(0)
+                        .min(chunk_size);
+                    segments_to_save.push(crate::db::SegmentRecord {
+                        segment_id: chunk.id,
+                        start_byte: chunk.original_start_byte,
+                        end_byte: chunk.end_byte,
+                        bytes_written: initial_written,
+                    });
+                }
+            }
+            let _ = db.save_segments_transactional(&id.to_string(), &segments_to_save);
         }
+        drop(active_chunks);
         return Err(e);
     }
     let writer_stats = writer_res?;
@@ -1706,6 +1895,7 @@ async fn download_inner(
             let expected_size = chunk.end_byte.saturating_sub(chunk.original_start_byte) + 1;
             if total_chunk_written < expected_size {
                 // Persist latest confirmed written bytes so subsequent resume attempts are accurate
+                let mut segments_to_save: Vec<crate::db::SegmentRecord> = Vec::new();
                 for c in active_chunks.iter() {
                     let s_written = writer_stats
                         .chunk_bytes_written
@@ -1713,14 +1903,27 @@ async fn download_inner(
                         .copied()
                         .unwrap_or(0);
                     let i_written = resumed_bytes.get(&c.id).copied().unwrap_or(0);
-                    let _ = db.save_segment(
-                        &id.to_string(),
-                        c.id,
-                        c.original_start_byte,
-                        c.end_byte,
-                        i_written.saturating_add(s_written),
-                    );
+                    let c_size = c.end_byte.saturating_sub(c.original_start_byte) + 1;
+                    segments_to_save.push(crate::db::SegmentRecord {
+                        segment_id: c.id,
+                        start_byte: c.original_start_byte,
+                        end_byte: c.end_byte,
+                        bytes_written: i_written.saturating_add(s_written).min(c_size),
+                    });
                 }
+                for c in chunks.iter() {
+                    if !active_chunks.iter().any(|ac| ac.id == c.id) {
+                        let c_size = c.end_byte.saturating_sub(c.original_start_byte) + 1;
+                        let i_written = resumed_bytes.get(&c.id).copied().unwrap_or(0).min(c_size);
+                        segments_to_save.push(crate::db::SegmentRecord {
+                            segment_id: c.id,
+                            start_byte: c.original_start_byte,
+                            end_byte: c.end_byte,
+                            bytes_written: i_written,
+                        });
+                    }
+                }
+                let _ = db.save_segments_transactional(&id.to_string(), &segments_to_save);
                 return Err(DownloadError::IncompleteDownload(format!(
                     "Chunk {} incomplete: {}/{} bytes written",
                     chunk.id, total_chunk_written, expected_size
