@@ -87,6 +87,7 @@ pub async fn download_ytdlp(
     }
 
     cmd.arg("-o").arg(out_path.to_string_lossy().as_ref());
+    cmd.arg("--");
     cmd.arg(&req.url);
 
     #[cfg(windows)]

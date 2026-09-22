@@ -7,6 +7,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub mod path_security;
+pub use path_security::{resolve_duplicate_path, safe_resolve_child, sanitize_filename};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 pub const API_VERSION: u32 = 1;
@@ -63,6 +66,8 @@ pub struct AddDownloadRequest {
     pub queue_type: Option<QueueType>,
     pub sync_interval_secs: Option<u64>,
     pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub duplicate_action: Option<DuplicateAction>,
 }
 
 /// PATCH /api/v1/downloads/:id
@@ -553,6 +558,15 @@ pub struct DaemonConfig {
 
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
+
+    #[serde(default)]
+    pub webdav_enabled: bool,
+
+    #[serde(default = "bool_true")]
+    pub webdav_read_only: bool,
+
+    #[serde(default)]
+    pub allowed_extension_ids: Vec<String>,
 }
 
 impl Default for DaemonConfig {
@@ -608,6 +622,9 @@ impl Default for DaemonConfig {
             s3_secret_key: None,
             s3_delete_local: false,
             max_retries: default_max_retries(),
+            webdav_enabled: false,
+            webdav_read_only: true,
+            allowed_extension_ids: vec![],
         }
     }
 }
@@ -728,4 +745,111 @@ pub fn db_path() -> PathBuf {
 
 pub fn token_path() -> PathBuf {
     app_data_dir().join("api.token")
+}
+
+/// Returns true if a candidate token string is a valid, usable API token.
+/// Rejects placeholders (e.g. `"********"` or strings of all asterisks), empty strings,
+/// or tokens shorter than 16 characters.
+pub fn is_valid_token(token: &str) -> bool {
+    let t = token.trim();
+    if t.is_empty() || t.len() < 16 {
+        return false;
+    }
+    if t == "********" || t.chars().all(|c| c == '*') {
+        return false;
+    }
+    true
+}
+
+/// Writes a token to the specified path with restricted owner-only permissions.
+pub fn write_restricted_token_file(path: &std::path::Path, token: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, token)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            let _ = std::fs::set_permissions(path, perms);
+        }
+    }
+
+    Ok(())
+}
+
+/// Retrieves the existing valid API token from `token_path()`, or generates a new
+/// cryptographically secure random 32-byte hex token (64 hex characters) and saves it
+/// to `token_path()` with restricted owner permissions.
+pub fn get_or_generate_token() -> std::io::Result<String> {
+    get_or_generate_token_at(&token_path())
+}
+
+/// Helper allowing custom token path (e.g. in tests or custom data directory).
+pub fn get_or_generate_token_at(path: &std::path::Path) -> std::io::Result<String> {
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let trimmed = content.trim();
+            if is_valid_token(trimmed) {
+                return Ok(trimmed.to_string());
+            }
+        }
+    }
+
+    let mut bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut bytes);
+    let token = hex::encode(bytes);
+
+    write_restricted_token_file(path, &token)?;
+    Ok(token)
+}
+
+// ─── Minimal Structured API Error Schema ──────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApiErrorDetail {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApiErrorResponse {
+    pub error: ApiErrorDetail,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_token_helpers() {
+        let temp = tempfile::tempdir().unwrap();
+        let token_file = temp.path().join("api.token");
+
+        // Invalid cases
+        assert!(!is_valid_token(""));
+        assert!(!is_valid_token("   "));
+        assert!(!is_valid_token("********"));
+        assert!(!is_valid_token("****************"));
+        assert!(!is_valid_token("short"));
+        assert!(is_valid_token("a-valid-secure-token-12345"));
+
+        // Generate on clean path
+        let generated = get_or_generate_token_at(&token_file).unwrap();
+        assert_eq!(generated.len(), 64);
+        assert!(token_file.exists());
+
+        // Calling again retrieves existing without regenerating
+        let retrieved = get_or_generate_token_at(&token_file).unwrap();
+        assert_eq!(retrieved, generated);
+
+        // If file contains placeholder, it gets replaced with new valid token
+        std::fs::write(&token_file, "********").unwrap();
+        let regenerated = get_or_generate_token_at(&token_file).unwrap();
+        assert_ne!(regenerated, "********");
+        assert_eq!(regenerated.len(), 64);
+    }
 }

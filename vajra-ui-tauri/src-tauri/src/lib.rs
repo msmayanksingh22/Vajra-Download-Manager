@@ -60,6 +60,19 @@ fn open_browser_setup() {
     }
 }
 
+/// Called from JS: returns the active daemon API token so the frontend can authenticate.
+#[tauri::command]
+fn get_api_token() -> Result<String, String> {
+    let token_path = vajra_protocol::token_path();
+    if token_path.exists() {
+        std::fs::read_to_string(&token_path)
+            .map(|s| s.trim().to_string())
+            .map_err(|e| e.to_string())
+    } else {
+        Err("Token file not found".to_string())
+    }
+}
+
 #[tauri::command]
 fn cmd_quit_app(app: AppHandle) {
     quit_app(&app);
@@ -145,7 +158,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
-            daemon_port, daemon_alive, open_browser_setup, dismiss_clipboard_url, cmd_quit_app,
+            daemon_port, daemon_alive, get_api_token, open_browser_setup, dismiss_clipboard_url, cmd_quit_app,
             open_file_path, show_in_explorer
         ])
         .setup(|app| {
@@ -238,7 +251,16 @@ pub fn run() {
 
                 loop {
                     log_sse("Connecting to daemon SSE at http://127.0.0.1:6277/api/v1/events");
-                    let request_builder = client.get("http://127.0.0.1:6277/api/v1/events");
+                    let token_path = vajra_protocol::token_path();
+                    let token = std::fs::read_to_string(&token_path)
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty());
+
+                    let mut request_builder = client.get("http://127.0.0.1:6277/api/v1/events");
+                    if let Some(ref tok) = token {
+                        request_builder = request_builder.header("Authorization", format!("Bearer {tok}"));
+                    }
                     let mut es = match EventSource::new(request_builder) {
                         Ok(source) => {
                             log_sse("EventSource client created successfully");

@@ -1,6 +1,7 @@
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 use anyhow::{Context, Result};
+use tokio::process::Command;
 
 /// Auto-muxes a list of `.ts` files into a single `.mp4` file using FFmpeg.
 /// Expects the input files to be written sequentially in an FFmpeg concat list format.
@@ -17,6 +18,7 @@ pub async fn mux_ts_files(concat_list_path: &Path, output_path: &Path) -> Result
         .arg("copy")
         .arg(output_path)
         .output()
+        .await
         .context("Failed to execute ffmpeg command")?;
 
     if !output.status.success() {
@@ -45,6 +47,7 @@ pub async fn mux_video_audio(
         .arg("copy")
         .arg(output_path)
         .output()
+        .await
         .context("Failed to execute ffmpeg command")?;
 
     if !output.status.success() {

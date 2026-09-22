@@ -31,11 +31,19 @@ pub struct SpiderResult {
 }
 
 pub async fn run_spider(
+    axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::AppState>>,
     Query(params): Query<SpiderParams>,
 ) -> std::result::Result<
     Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>,
     DaemonError,
 > {
+    if !crate::AppState::check_rate_limit(&state.spider_limiter, 10, Duration::from_secs(10)).await
+    {
+        return Err(DaemonError::RateLimited(
+            "Spider rate limit exceeded, please slow down".into(),
+        ));
+    }
+
     let (tx, rx) = tokio::sync::mpsc::channel(100);
     let target_url = params.url.clone();
     let max_depth = params.depth.unwrap_or(1);

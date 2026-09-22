@@ -52,8 +52,27 @@ pub async fn add_download(
     State(state): State<Arc<AppState>>,
     Json(body): Json<AddDownloadRequest>,
 ) -> Result<impl IntoResponse> {
-    // Validate scheme
+    // 1. Rate limit check
+    if !AppState::check_rate_limit(
+        &state.add_download_limiter,
+        60,
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    {
+        return Err(DaemonError::RateLimited(
+            "Download creation rate limit exceeded, please slow down".into(),
+        ));
+    }
+
+    // 2. Validate URL length and scheme
     let trimmed_url = body.url.trim();
+    if trimmed_url.len() > 4096 {
+        return Err(DaemonError::BadRequest(
+            "URL exceeds maximum length of 4096 characters".into(),
+        ));
+    }
+
     let lower_url = trimmed_url.to_lowercase();
     if !lower_url.starts_with("http://")
         && !lower_url.starts_with("https://")
@@ -61,6 +80,36 @@ pub async fn add_download(
     {
         return Err(DaemonError::BadRequest(
             "Only HTTP(S) and magnet: URLs are supported".into(),
+        ));
+    }
+
+    // 3. Validate filename length if provided
+    if let Some(ref fname) = body.filename {
+        if fname.len() > 255 {
+            return Err(DaemonError::BadRequest(
+                "Filename exceeds maximum length of 255 characters".into(),
+            ));
+        }
+    }
+
+    // 4. Validate tags
+    if let Some(ref tags) = body.tags {
+        if tags.len() > 50 {
+            return Err(DaemonError::BadRequest("Too many tags (maximum 50)".into()));
+        }
+        for tag in tags {
+            if tag.len() > 100 {
+                return Err(DaemonError::BadRequest(
+                    "Tag exceeds maximum length of 100 characters".into(),
+                ));
+            }
+        }
+    }
+
+    // 5. Validate custom headers count
+    if body.headers.len() > 50 {
+        return Err(DaemonError::BadRequest(
+            "Too many custom headers (maximum 50)".into(),
         ));
     }
 
@@ -77,7 +126,12 @@ pub async fn add_download(
     // Auto-categorize logic disabled based on user request.
     // Default to system Downloads folder, then config fallback, unless explicitly provided.
     let output_dir = if let Some(dir) = body.output_dir.as_deref() {
-        PathBuf::from(dir) // explicit override from caller
+        match vajra_protocol::path_security::validate_output_dir(std::path::Path::new(dir)) {
+            Ok(p) => p,
+            Err(e) => {
+                return Err(DaemonError::BadRequest(format!("Invalid output_dir: {e}")));
+            }
+        }
     } else {
         dirs_next::download_dir().unwrap_or_else(|| PathBuf::from(&config.default_output_dir))
     };
@@ -161,7 +215,10 @@ pub async fn add_download(
         url: target_url,
         mirrors: vec![],
         dest_dir: output_dir,
-        filename: body.filename.clone(),
+        filename: body
+            .filename
+            .as_deref()
+            .map(vajra_protocol::sanitize_filename),
         timeout_secs: None,
         connect_timeout_secs: None,
         max_connections,
@@ -184,10 +241,7 @@ pub async fn add_download(
         throttle: None,
         expected_hash: body.expected_hash.clone(),
         auto_extract: body.auto_extract || config.auto_extract,
-        post_processing_script: body
-            .post_processing_script
-            .clone()
-            .or_else(|| config.post_process_script.clone()),
+        post_processing_script: config.post_process_script.clone(),
         av_scan_path: config.av_scan_path.clone(),
         av_scan_args: config.av_scan_args.clone(),
         schedule_at: body.schedule_at,
@@ -197,6 +251,7 @@ pub async fn add_download(
         tags: body.tags.clone().unwrap_or_default(),
         daemon_config: Some((*config).clone()),
         multiplexer_options: None,
+        duplicate_action: body.duplicate_action,
     };
 
     drop(config);
@@ -208,7 +263,7 @@ pub async fn add_download(
         let db = state.database.lock().await;
         db.upsert_job(&vajra_engine::db::JobRecord {
             id: id.to_string(),
-            request_json: serde_json::to_string(&request).unwrap_or_default(),
+            request_json: serde_json::to_string(&request.to_redacted()).unwrap_or_default(),
             state: "queued".to_string(),
             created_at: now,
             updated_at: now,
@@ -278,16 +333,13 @@ pub async fn list_downloads(
         .map(progress_to_info)
         .collect();
 
+    let limit = params.limit.clamp(1, 500);
     let total = items.len();
-    let paged: Vec<DownloadInfo> = items
-        .into_iter()
-        .skip(params.offset)
-        .take(params.limit)
-        .collect();
+    let paged: Vec<DownloadInfo> = items.into_iter().skip(params.offset).take(limit).collect();
 
     Ok(Json(DownloadList {
         total,
-        limit: params.limit,
+        limit,
         offset: params.offset,
         items: paged,
     }))
@@ -319,12 +371,13 @@ pub async fn patch_download(
 ) -> Result<impl IntoResponse> {
     // 1.2 Handle Filename change (rename)
     if let Some(new_filename) = &body.filename {
-        let new_filename = new_filename.trim();
-        if new_filename.is_empty() || new_filename.contains('/') || new_filename.contains('\\') {
+        let clean = vajra_protocol::sanitize_filename(new_filename);
+        if clean.is_empty() || (clean == "download" && new_filename.trim().is_empty()) {
             return Err(DaemonError::BadRequest(
-                "Invalid filename: cannot be empty or contain path separators".into(),
+                "Invalid filename: cannot be empty".into(),
             ));
         }
+        let new_filename = &clean;
 
         if state
             .manager
@@ -342,7 +395,7 @@ pub async fn patch_download(
             >(&job.request_json)
             {
                 request.filename = Some(new_filename.to_string());
-                if let Ok(new_json) = serde_json::to_string(&request) {
+                if let Ok(new_json) = serde_json::to_string(&request.to_redacted()) {
                     job.request_json = new_json;
                     job.updated_at = chrono::Utc::now();
                     let _ = db.upsert_job(&job);
@@ -362,7 +415,13 @@ pub async fn patch_download(
 
     // 1. Handle URL change (refresh link)
     if let Some(new_url) = &body.url {
-        let lower_new_url = new_url.trim().to_lowercase();
+        let trimmed_new_url = new_url.trim();
+        if trimmed_new_url.len() > 4096 {
+            return Err(DaemonError::BadRequest(
+                "URL exceeds maximum length of 4096 characters".into(),
+            ));
+        }
+        let lower_new_url = trimmed_new_url.to_lowercase();
         if !lower_new_url.starts_with("http://")
             && !lower_new_url.starts_with("https://")
             && !lower_new_url.starts_with("magnet:")
@@ -383,7 +442,7 @@ pub async fn patch_download(
             >(&job.request_json)
             {
                 request.url = new_url.clone();
-                if let Ok(new_json) = serde_json::to_string(&request) {
+                if let Ok(new_json) = serde_json::to_string(&request.to_redacted()) {
                     job.request_json = new_json;
                     job.updated_at = chrono::Utc::now();
                     let _ = db.upsert_job(&job);
@@ -394,8 +453,10 @@ pub async fn patch_download(
 
     // 2. Handle Settings change (speed limit, max connections)
     if body.speed_limit_bps.is_some() || body.max_connections.is_some() {
-        let speed_limit = body.speed_limit_bps.map(|opt| opt.unwrap_or(0));
-        let max_connections = body.max_connections;
+        let speed_limit = body
+            .speed_limit_bps
+            .map(|opt| opt.unwrap_or(0).min(1_250_000_000));
+        let max_connections = body.max_connections.map(|c| c.clamp(1, 32));
 
         if state
             .manager
@@ -418,7 +479,7 @@ pub async fn patch_download(
                 if let Some(conn) = max_connections {
                     request.max_connections = conn;
                 }
-                if let Ok(new_json) = serde_json::to_string(&request) {
+                if let Ok(new_json) = serde_json::to_string(&request.to_redacted()) {
                     job.request_json = new_json;
                     job.updated_at = chrono::Utc::now();
                     let _ = db.upsert_job(&job);
@@ -429,6 +490,17 @@ pub async fn patch_download(
 
     // 2.5 Handle Tags change
     if let Some(new_tags) = &body.tags {
+        if new_tags.len() > 50 {
+            return Err(DaemonError::BadRequest("Too many tags (maximum 50)".into()));
+        }
+        for t in new_tags {
+            if t.len() > 100 {
+                return Err(DaemonError::BadRequest(
+                    "Tag length exceeds 100 characters".into(),
+                ));
+            }
+        }
+
         if state
             .manager
             .update_tags(id, new_tags.clone())
@@ -444,7 +516,7 @@ pub async fn patch_download(
             >(&job.request_json)
             {
                 request.tags = new_tags.clone();
-                if let Ok(new_json) = serde_json::to_string(&request) {
+                if let Ok(new_json) = serde_json::to_string(&request.to_redacted()) {
                     job.request_json = new_json;
                     job.updated_at = chrono::Utc::now();
                     let _ = db.upsert_job(&job);
@@ -460,7 +532,26 @@ pub async fn patch_download(
     if let Some(action) = &body.action {
         match action {
             DownloadAction::Pause => state.manager.pause(id).await,
-            DownloadAction::Resume | DownloadAction::Retry => state.manager.resume(id).await,
+            DownloadAction::Resume | DownloadAction::Retry => {
+                if let Some(p) = state.manager.progress(id).await {
+                    if let Ok(parsed) = url::Url::parse(&p.url) {
+                        if let Some(domain) = parsed.host_str() {
+                            let db = state.database.lock().await;
+                            if let Ok(Some(cred)) = db.get_credential_by_domain(domain) {
+                                let encoded = base64::Engine::encode(
+                                    &base64::engine::general_purpose::STANDARD,
+                                    format!("{}:{}", cred.username, cred.password),
+                                );
+                                state
+                                    .manager
+                                    .update_authorization(id, Some(format!("Basic {}", encoded)))
+                                    .await;
+                            }
+                        }
+                    }
+                }
+                state.manager.resume(id).await;
+            }
             DownloadAction::Cancel => {
                 state.manager.cancel(id).await;
                 state
@@ -696,10 +787,33 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
 // ─── POST /api/v1/inspect ────────────────────────────────────────────────────
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/inspect",
+    request_body = InspectRequest,
+    responses(
+        (status = 200, description = "URL inspection result", body = InspectResponse),
+        (status = 400, description = "Bad request", body = ApiErrorResponse),
+        (status = 429, description = "Rate limited", body = ApiErrorResponse)
+    )
+)]
 pub async fn inspect_url(
     State(state): State<Arc<AppState>>,
     Json(body): Json<InspectRequest>,
 ) -> Result<impl IntoResponse> {
+    // 1. Rate limit check
+    if !AppState::check_rate_limit(
+        &state.inspect_limiter,
+        30,
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    {
+        return Err(DaemonError::RateLimited(
+            "Inspect rate limit exceeded, please slow down".into(),
+        ));
+    }
+
     let config = state.config.read().await;
     let mut builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -732,14 +846,16 @@ pub async fn inspect_url(
     }
 
     if let Some(req) = builder.try_clone().and_then(|b| b.build().ok()) {
-        println!("[DEBUG] HEAD Request to URL: {}", req.url());
-        println!("[DEBUG] HEAD Request Headers: {:?}", req.headers());
+        tracing::debug!("HEAD Request to URL: {}", req.url());
     }
 
     let resp = match builder.send().await {
         Ok(r) if r.status().is_success() => r,
         Ok(r) => {
-            println!("[DEBUG] HEAD request returned non-success status: {}. Retrying with GET fallback...", r.status());
+            tracing::debug!(
+                "HEAD request returned non-success status: {}. Retrying with GET fallback...",
+                r.status()
+            );
             let mut get_builder = client.get(&body.url);
             for (k, v) in &body.headers {
                 if k.eq_ignore_ascii_case("range") {
@@ -748,7 +864,7 @@ pub async fn inspect_url(
                 get_builder = get_builder.header(k.as_str(), v.as_str());
             }
             if let Some(req) = get_builder.try_clone().and_then(|b| b.build().ok()) {
-                println!("[DEBUG] GET Fallback Request to URL: {}", req.url());
+                tracing::debug!("GET Fallback Request to URL: {}", req.url());
             }
             let get_resp = get_builder.send().await.map_err(|get_err| {
                 DaemonError::BadRequest(format!(
@@ -769,10 +885,7 @@ pub async fn inspect_url(
             get_resp
         }
         Err(e) => {
-            println!(
-                "[DEBUG] HEAD request failed: {}. Retrying with GET fallback...",
-                e
-            );
+            tracing::debug!("HEAD request failed: {}. Retrying with GET fallback...", e);
             let mut get_builder = client.get(&body.url);
             for (k, v) in &body.headers {
                 if k.eq_ignore_ascii_case("range") {
@@ -781,7 +894,7 @@ pub async fn inspect_url(
                 get_builder = get_builder.header(k.as_str(), v.as_str());
             }
             if let Some(req) = get_builder.try_clone().and_then(|b| b.build().ok()) {
-                println!("[DEBUG] GET Fallback Request to URL: {}", req.url());
+                tracing::debug!("GET Fallback Request to URL: {}", req.url());
             }
             let get_resp = get_builder.send().await.map_err(|get_err| {
                 DaemonError::BadRequest(format!(
@@ -909,6 +1022,14 @@ pub async fn inspect_url(
 }
 
 // === Intercept (from extension) ===
+#[utoipa::path(
+    post,
+    path = "/api/v1/intercept",
+    request_body = AddDownloadRequest,
+    responses(
+        (status = 200, description = "URL intercepted successfully")
+    )
+)]
 pub async fn intercept_url(
     State(state): State<Arc<AppState>>,
     Json(body): Json<vajra_protocol::AddDownloadRequest>,
@@ -916,7 +1037,8 @@ pub async fn intercept_url(
     let url = body.url.clone();
     let filename = body
         .filename
-        .clone()
+        .as_deref()
+        .map(vajra_protocol::sanitize_filename)
         .unwrap_or_else(|| "download".to_string());
 
     // Broadcast the Intercepted event to any connected UI
@@ -964,22 +1086,108 @@ pub async fn stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
 // ─── GET/PATCH /api/v1/config ─────────────────────────────────────────────────
 
-pub async fn get_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let mut config = state.config.read().await.clone();
-    let db = state.database.lock().await;
-    if let Ok(Some(_)) = db.get_credential_by_domain("2captcha.com") {
+fn sanitize_config_for_export(
+    mut config: vajra_protocol::DaemonConfig,
+    db: &vajra_engine::db::Database,
+) -> vajra_protocol::DaemonConfig {
+    if db
+        .get_credential_by_domain("2captcha.com")
+        .ok()
+        .flatten()
+        .is_some()
+    {
         config.captcha_api_key = Some("********".to_string());
     } else {
         config.captcha_api_key = None;
     }
-    Json(config)
+    if config.api_token.is_some() {
+        config.api_token = Some("********".to_string());
+    }
+    if config.s3.secret_key.is_some() {
+        config.s3.secret_key = Some("********".to_string());
+    }
+    if let Some(ref proxy_url) = config.proxy.url {
+        if let Ok(mut parsed) = url::Url::parse(proxy_url) {
+            if !parsed.username().is_empty() || parsed.password().is_some() {
+                let _ = parsed.set_username("");
+                let _ = parsed.set_password(None);
+                config.proxy.url = Some(parsed.to_string());
+            }
+        }
+    }
+    config
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/config",
+    responses(
+        (status = 200, description = "Daemon configuration", body = DaemonConfig)
+    )
+)]
+pub async fn get_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let config = state.config.read().await.clone();
+    let db = state.database.lock().await;
+    let sanitized = sanitize_config_for_export(config, &db);
+    Json(sanitized)
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/config",
+    request_body = DaemonConfig,
+    responses(
+        (status = 200, description = "Configuration updated"),
+        (status = 400, description = "Invalid configuration", body = ApiErrorResponse)
+    )
+)]
 pub async fn patch_config(
     State(state): State<Arc<AppState>>,
     Json(mut body): Json<vajra_protocol::DaemonConfig>,
 ) -> Result<impl IntoResponse> {
-    // Process captcha key in vault
+    // 1. Path safety
+    let validated_dir = match vajra_protocol::path_security::validate_output_dir(
+        std::path::Path::new(&body.default_output_dir),
+    ) {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(e) => {
+            return Err(DaemonError::BadRequest(format!(
+                "Invalid default_output_dir: {e}"
+            )));
+        }
+    };
+    body.default_output_dir = validated_dir;
+
+    let current_cfg = state.config.read().await.clone();
+
+    // 1b. WebDAV safety: prevent root pivoting and enforce read-only
+    if body.webdav_enabled {
+        body.webdav_read_only = true;
+        if current_cfg.webdav_enabled && body.default_output_dir != current_cfg.default_output_dir {
+            return Err(DaemonError::BadRequest(
+                "Cannot change default_output_dir while WebDAV is enabled; disable WebDAV first to prevent root pivoting".into(),
+            ));
+        }
+    }
+
+    // 2. Auth token handling: never allow clearing/disabling token or setting placeholder
+    let current_token = state.config.read().await.api_token.clone();
+    let effective_token = match &body.api_token {
+        Some(token) if token != "********" && !token.trim().is_empty() => {
+            if !crate::api::auth::is_valid_token(token) {
+                return Err(DaemonError::BadRequest(
+                    "api_token must be at least 16 characters and cannot be a placeholder".into(),
+                ));
+            }
+            let token_path = vajra_protocol::token_path();
+            let _ = crate::api::auth::write_restricted_token_file(&token_path, token.trim());
+            Some(token.clone())
+        }
+        _ => current_token, // Preserve active token
+    };
+    body.api_token = effective_token;
+
+    // 3. Process captcha key in vault
     if let Some(key) = body.captcha_api_key.clone() {
         let db = state.database.lock().await;
         if key.is_empty() {
@@ -1006,6 +1214,19 @@ pub async fn patch_config(
     // Clear key in memory/disk config so it is never saved in plaintext
     body.captcha_api_key = None;
 
+    // 4. Script validation
+    if let Some(ref script) = body.post_process_script {
+        if !script.is_empty() && !std::path::Path::new(script).is_file() {
+            return Err(DaemonError::BadRequest(
+                "post_process_script path does not exist".into(),
+            ));
+        }
+    }
+
+    // 5. Numerical bounds
+    body.max_concurrent_downloads = body.max_concurrent_downloads.clamp(1, 32);
+    body.default_max_connections = body.default_max_connections.clamp(1, 32);
+
     *state.config.write().await = body.clone();
 
     // Update global speed limit in manager
@@ -1026,9 +1247,26 @@ pub async fn patch_config(
     };
     state.manager.set_settings(q_settings).await;
 
-    // Persist to disk (best-effort)
-    if let Ok(json) = serde_json::to_string_pretty(&body) {
-        let _ = std::fs::write(vajra_protocol::config_path(), json);
+    // Persist to disk (do not unnecessarily persist generated token into config.json)
+    let mut disk_cfg = body.clone();
+    let config_path = vajra_protocol::config_path();
+    let config_file_had_token = if let Ok(existing_raw) = std::fs::read_to_string(&config_path) {
+        if let Ok(existing_json) = serde_json::from_str::<serde_json::Value>(&existing_raw) {
+            existing_json
+                .get("api_token")
+                .and_then(|t| t.as_str())
+                .is_some()
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    if !config_file_had_token {
+        disk_cfg.api_token = None;
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&disk_cfg) {
+        let _ = std::fs::write(&config_path, json);
     }
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -1104,7 +1342,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
         async function checkDaemon() {
             const el = document.getElementById('status');
             try {
-                const r = await fetch('http://127.0.0.1:6277/health');
+                const r = await fetch('/health');
                 if (r.ok) {
                     el.className = 'status ok';
                     el.innerHTML = 'Daemon Connected ✓';
@@ -1138,6 +1376,13 @@ pub async fn browser_setup() -> impl IntoResponse {
 
 // ─── Vault Handlers ───────────────────────────────────────────────────────────
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/vault",
+    responses(
+        (status = 200, description = "List vault credentials", body = [VaultCredentialResponse])
+    )
+)]
 pub async fn get_vault_credentials(
     State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse> {
@@ -1157,6 +1402,15 @@ pub async fn get_vault_credentials(
     Ok((StatusCode::OK, Json(response)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/vault",
+    request_body = AddVaultCredentialRequest,
+    responses(
+        (status = 201, description = "Credential added", body = VaultCredentialResponse),
+        (status = 400, description = "Bad request", body = ApiErrorResponse)
+    )
+)]
 pub async fn add_vault_credential(
     State(state): State<Arc<AppState>>,
     Json(body): Json<vajra_protocol::AddVaultCredentialRequest>,
@@ -1183,6 +1437,13 @@ pub async fn add_vault_credential(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/vault/{id}",
+    responses(
+        (status = 204, description = "Credential deleted")
+    )
+)]
 pub async fn delete_vault_credential(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1276,20 +1537,93 @@ pub async fn get_shared_queue(State(state): State<Arc<AppState>>) -> impl IntoRe
 }
 
 // ─── GET /api/v1/config/export ────────────────────────────────────────────────
+#[utoipa::path(
+    get,
+    path = "/api/v1/config/export",
+    responses(
+        (status = 200, description = "Exported daemon configuration", body = DaemonConfig)
+    )
+)]
 pub async fn export_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let config = state.config.read().await.clone();
-    Json(config)
+    let db = state.database.lock().await;
+    let sanitized = sanitize_config_for_export(config, &db);
+    Json(sanitized)
 }
 
 // ─── POST /api/v1/config/import ───────────────────────────────────────────────
+#[utoipa::path(
+    post,
+    path = "/api/v1/config/import",
+    request_body = DaemonConfig,
+    responses(
+        (status = 200, description = "Configuration imported"),
+        (status = 400, description = "Invalid configuration", body = ApiErrorResponse)
+    )
+)]
 pub async fn import_config(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<vajra_protocol::DaemonConfig>,
+    Json(mut body): Json<vajra_protocol::DaemonConfig>,
 ) -> Result<impl IntoResponse> {
-    // 1. Update the in-memory config
+    // 1. Path safety check
+    let validated_dir = match vajra_protocol::path_security::validate_output_dir(
+        std::path::Path::new(&body.default_output_dir),
+    ) {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(e) => {
+            return Err(DaemonError::BadRequest(format!(
+                "Invalid default_output_dir in imported config: {e}"
+            )));
+        }
+    };
+    body.default_output_dir = validated_dir;
+
+    let current_cfg = state.config.read().await.clone();
+
+    // 1b. WebDAV safety: prevent root pivoting and enforce read-only
+    if body.webdav_enabled {
+        body.webdav_read_only = true;
+        if current_cfg.webdav_enabled && body.default_output_dir != current_cfg.default_output_dir {
+            return Err(DaemonError::BadRequest(
+                "Cannot change default_output_dir while WebDAV is enabled; disable WebDAV first to prevent root pivoting".into(),
+            ));
+        }
+    }
+
+    // 2. Auth safety: do NOT allow import to disable API authentication or set placeholder
+    let current_token = state.config.read().await.api_token.clone();
+    let effective_token = match &body.api_token {
+        Some(token) if token != "********" && !token.trim().is_empty() => {
+            if !crate::api::auth::is_valid_token(token) {
+                return Err(DaemonError::BadRequest(
+                    "api_token must be at least 16 characters and cannot be a placeholder".into(),
+                ));
+            }
+            let token_path = vajra_protocol::token_path();
+            let _ = crate::api::auth::write_restricted_token_file(&token_path, token.trim());
+            Some(token.clone())
+        }
+        _ => current_token, // Preserve active token
+    };
+    body.api_token = effective_token;
+
+    // 4. Script validation
+    if let Some(ref script) = body.post_process_script {
+        if !script.is_empty() && !std::path::Path::new(script).is_file() {
+            return Err(DaemonError::BadRequest(
+                "Imported post_process_script does not exist".into(),
+            ));
+        }
+    }
+
+    // 5. Numerical bounds
+    body.max_concurrent_downloads = body.max_concurrent_downloads.clamp(1, 32);
+    body.default_max_connections = body.default_max_connections.clamp(1, 32);
+
+    // Update in-memory
     *state.config.write().await = body.clone();
 
-    // 2. Persist to DB settings
+    // Persist to DB settings
     let db = state.database.lock().await;
     let s = vajra_engine::db::AppSettings {
         default_download_dir: body.default_output_dir.clone(),
@@ -1310,7 +1644,7 @@ pub async fn import_config(
     db.save_settings(&s)
         .map_err(|e| DaemonError::Internal(e.to_string()))?;
 
-    // 3. Update the download manager queue settings
+    // Update manager queue settings
     let q_settings = vajra_engine::queue::QueueSettings {
         max_concurrent: body.max_concurrent_downloads as usize,
         scheduler_enabled: body.scheduler_enabled,
@@ -1322,14 +1656,40 @@ pub async fn import_config(
     };
     state.manager.set_settings(q_settings).await;
 
-    // 4. Persist to config file
-    if let Ok(json) = serde_json::to_string_pretty(&body) {
-        let _ = std::fs::write(vajra_protocol::config_path(), json);
+    // Persist to disk (safe without exposing generated token in config.json)
+    let mut disk_cfg = body.clone();
+    let config_path = vajra_protocol::config_path();
+    let config_file_had_token = if let Ok(existing_raw) = std::fs::read_to_string(&config_path) {
+        if let Ok(existing_json) = serde_json::from_str::<serde_json::Value>(&existing_raw) {
+            existing_json
+                .get("api_token")
+                .and_then(|t| t.as_str())
+                .is_some()
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    if !config_file_had_token {
+        disk_cfg.api_token = None;
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&disk_cfg) {
+        let _ = std::fs::write(&config_path, json);
     }
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 // ─── POST /api/v1/downloads/:id/preview ───────────────────────────────────────
+#[utoipa::path(
+    post,
+    path = "/api/v1/downloads/{id}/preview",
+    responses(
+        (status = 200, description = "File preview launched or retrieved"),
+        (status = 400, description = "Unsafe or unsupported preview target", body = ApiErrorResponse),
+        (status = 404, description = "Download not found", body = ApiErrorResponse)
+    )
+)]
 pub async fn preview_download(
     Path(id): Path<Uuid>,
     State(state): State<Arc<AppState>>,
@@ -1342,20 +1702,73 @@ pub async fn preview_download(
         .await
         .ok_or_else(|| DaemonError::NotFound(id))?;
 
-    let src_path = std::path::Path::new(&progress.dest_path);
+    let src_path = if !progress.dest_path.is_empty() {
+        let p = std::path::PathBuf::from(&progress.dest_path);
+        if p.is_dir() {
+            p.join(&progress.filename)
+        } else {
+            p
+        }
+    } else if let Some(req) = state.manager.get_request(id).await {
+        let name = req.filename.as_deref().unwrap_or(&progress.filename);
+        req.dest_dir.join(name)
+    } else {
+        std::path::PathBuf::new()
+    };
+
     if !src_path.exists() {
         return Err(DaemonError::BadRequest(
             "Download file does not exist yet".to_string(),
         ));
     }
 
-    // Determine target preview path in temporary directory
+    let ext = src_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    // Explicitly reject executable / script / shortcut formats
+    const REJECTED_EXTENSIONS: &[&str] = &[
+        "exe", "bat", "cmd", "vbs", "vbe", "js", "jse", "wsf", "wsh", "ps1", "ps1xml", "ps2",
+        "ps2xml", "psc1", "psc2", "msh", "msh1", "msh2", "mshxml", "msh1xml", "msh2xml", "msi",
+        "msp", "mst", "com", "scr", "hta", "cpl", "jar", "reg", "pif", "lnk", "url", "dll", "sys",
+        "drv", "bin", "iso", "img", "sh", "bash", "psm1", "psd1",
+    ];
+
+    if REJECTED_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(DaemonError::BadRequest(format!(
+            "Preview is strictly prohibited for executable/script format: .{ext}"
+        )));
+    }
+
+    // Safe media / preview allowlist
+    const SAFE_PREVIEW_EXTENSIONS: &[&str] = &[
+        // Images
+        "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "tiff", "avif",
+        // Audio
+        "mp3", "wav", "ogg", "flac", "m4a", "aac", "wma", "opus", // Video
+        "mp4", "mkv", "webm", "avi", "mov", "wmv", "flv", "m4v", // Text / Documents
+        "pdf", "txt", "md", "csv", "json", "xml", "log",
+    ];
+
+    if !SAFE_PREVIEW_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(DaemonError::BadRequest(format!(
+            "File type '.{ext}' is not supported for safe preview"
+        )));
+    }
+
+    // Determine target preview path in temporary directory with unique UUID
     let filename = src_path
         .file_name()
         .ok_or_else(|| DaemonError::Internal("Invalid filename".to_string()))?;
 
     let temp_dir = std::env::temp_dir();
-    let preview_path = temp_dir.join(format!("preview_{}", filename.to_string_lossy()));
+    let preview_path = temp_dir.join(format!(
+        "preview_{}_{}",
+        Uuid::new_v4(),
+        filename.to_string_lossy()
+    ));
 
     // Copy the partial file (up to the current downloaded bytes size to avoid copy bloat of huge unallocated files)
     let mut src_file =
@@ -1381,11 +1794,11 @@ pub async fn preview_download(
         total_copied += read as u64;
     }
 
-    // Open the preview file with the default system application (non-blocking)
+    // Open the preview file with the default system application (non-blocking, direct process execution without shell)
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("cmd")
-            .args(["/C", "start", "", &preview_path.to_string_lossy()])
+        let _ = std::process::Command::new("explorer")
+            .arg(&preview_path)
             .spawn();
     }
     #[cfg(target_os = "macos")]

@@ -126,31 +126,45 @@ pub async fn run_post_processing_script(
     script_path: &Path,
     downloaded_file: &Path,
 ) -> anyhow::Result<()> {
+    if !script_path.is_file() {
+        anyhow::bail!(
+            "Configured post-processing script not found: {:?}",
+            script_path
+        );
+    }
+
     let ext = script_path
         .extension()
         .unwrap_or_default()
         .to_string_lossy()
         .to_lowercase();
 
-    // NOTE: -ExecutionPolicy Bypass is intentionally NOT used here.
-    // Bypassing the system execution policy would allow an attacker who can supply a script
-    // path (e.g., via a crafted intercept request) to run arbitrary unsigned PowerShell code.
-    // The system policy (RemoteSigned / AllSigned) acts as a last line of defence.
-    // The script_path is passed as a literal argument to the process, not shell-interpolated,
-    // so special characters in the path cannot cause command injection.
     let mut cmd = if ext == "ps1" {
         let mut c = tokio::process::Command::new("powershell");
-        c.arg("-NonInteractive").arg("-File").arg(script_path);
+        c.arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-File")
+            .arg(script_path)
+            .arg(downloaded_file);
+        c.stdin(std::process::Stdio::null());
+        c
+    } else if ext == "cmd" || ext == "bat" {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/D").arg("/C").arg(script_path).arg(downloaded_file);
+        c.stdin(std::process::Stdio::null());
+        c
+    } else if ext == "sh" {
+        let mut c = tokio::process::Command::new("sh");
+        c.arg(script_path).arg(downloaded_file);
         c.stdin(std::process::Stdio::null());
         c
     } else {
-        let mut c = tokio::process::Command::new("cmd");
-        c.arg("/C").arg(script_path);
+        // Direct executable invocation without shell
+        let mut c = tokio::process::Command::new(script_path);
+        c.arg(downloaded_file);
         c.stdin(std::process::Stdio::null());
         c
     };
-
-    cmd.arg(downloaded_file);
 
     let status = cmd.status().await?;
     if !status.success() {

@@ -6,6 +6,39 @@ declare var chrome: any;
 
 const DAEMON = 'http://127.0.0.1:6277';
 
+let cachedAppToken: string | null = null;
+
+async function getAuthToken(): Promise<string | null> {
+  if (cachedAppToken) return cachedAppToken;
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+    const res: any = await new Promise((r) => chrome.storage.local.get(['api_token'], r));
+    if (res?.api_token && typeof res.api_token === 'string') {
+      const tok = res.api_token.trim();
+      if (tok.length >= 16 && !tok.includes('***')) {
+        cachedAppToken = tok;
+        return cachedAppToken;
+      }
+    }
+  }
+  if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+    const resp: any = await new Promise((r) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'get_token' }, (res: any) => {
+          if (!chrome.runtime.lastError && res?.ok && res.token) r(res);
+          else r(null);
+        });
+      } catch {
+        r(null);
+      }
+    });
+    if (resp?.token) {
+      cachedAppToken = resp.token;
+      return cachedAppToken;
+    }
+  }
+  return null;
+}
+
 function App() {
   // 4.1: Unified key — vajra_enabled (was interceptEnabled)
   const [interceptEnabled, setInterceptEnabled] = useState(true);
@@ -40,7 +73,10 @@ function App() {
           setDaemonStatus('online');
           // 4.3: Fetch active download count
           try {
-            const dlRes = await fetch(`${DAEMON}/api/v1/downloads`);
+            const token = await getAuthToken();
+            const headers: Record<string, string> = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const dlRes = await fetch(`${DAEMON}/api/v1/downloads`, { headers });
             if (dlRes.ok) {
               const data = await dlRes.json();
               const list: any[] = Array.isArray(data) ? data : (data.downloads ?? []);
@@ -91,9 +127,12 @@ function App() {
     if (!url) return;
     setAddStatus('sending');
     try {
+      const token = await getAuthToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       const r = await fetch(`${DAEMON}/api/v1/intercept`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ url, filename: null, headers: {}, output_dir: null, priority: 'normal' }),
       });
       setAddStatus(r.ok ? 'success' : 'error');

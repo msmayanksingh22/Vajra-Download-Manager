@@ -60,7 +60,9 @@ impl RssManager {
                                                                 .clone(),
                                                         ),
                                                         filename: item.title().map(|t| {
-                                                            format!("{}.mp3", t.replace("/", "_"))
+                                                            vajra_protocol::sanitize_filename(
+                                                                &format!("{t}.mp3"),
+                                                            )
                                                         }),
                                                         timeout_secs: None,
                                                         connect_timeout_secs: None,
@@ -97,6 +99,7 @@ impl RssManager {
                                                         tcp_multiplexing_opt: false,
                                                         adaptive_chunk_v2: false,
                                                         multiplexer_options: None,
+                                                        duplicate_action: None,
                                                     };
 
                                                     // Insert to db to prevent duplicate downloads

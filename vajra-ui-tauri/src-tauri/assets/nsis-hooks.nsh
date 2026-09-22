@@ -30,11 +30,10 @@
   ; Broadcast WM_SETTINGCHANGE so new PATH is live
   System::Call 'user32::SendMessageTimeout(i 0xffff, i 0x001A, i 0, t "Environment", i 2, i 5000, *i .r0)'
 
-  ; Create Native Messaging Host script
+  ; Create Native Messaging Host fallback script
   FileOpen $1 "$INSTDIR\native-host.bat" w
   FileWrite $1 "@echo off$\r$\n"
-  FileWrite $1 'start "" "$INSTDIR\vajra-ui-tauri.exe" --minimized$\r$\n'
-  FileWrite $1 "exit 0$\r$\n"
+  FileWrite $1 '"$INSTDIR\vajra-cli.exe" host %*$\r$\n'
   FileClose $1
 
   ; Replace single backslashes with double backslashes for JSON
@@ -42,12 +41,12 @@
   Call EscapeBackslashes
   Pop $2
 
-  ; Create Native Messaging JSON manifest
+  ; Create Native Messaging JSON manifest (pointing directly to protocol-speaking vajra-cli.exe)
   FileOpen $1 "$INSTDIR\com.vajra.manager.json" w
   FileWrite $1 '{$\r$\n'
   FileWrite $1 '  "name": "com.vajra.manager",$\r$\n'
   FileWrite $1 '  "description": "Vajra Native Messaging Host",$\r$\n'
-  FileWrite $1 '  "path": "$2\\\\native-host.bat",$\r$\n'
+  FileWrite $1 '  "path": "$2\\\\vajra-cli.exe",$\r$\n'
   FileWrite $1 '  "type": "stdio",$\r$\n'
   FileWrite $1 '  "allowed_origins": [$\r$\n'
   FileWrite $1 '    "chrome-extension://mfdepghakanbpamaakojoaogglepehfh/"$\r$\n'
@@ -55,21 +54,58 @@
   FileWrite $1 '}$\r$\n'
   FileClose $1
 
-  ; Register in Chrome and Edge registries
+  ; Clean up legacy com.vajra.downloadmanager registrations (64-bit and 32-bit views, HKLM and HKCU)
+  SetRegView 64
+  DeleteRegKey HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKCU "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager"
+  SetRegView 32
+  DeleteRegKey HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKCU "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager"
+  Delete "$INSTDIR\com.vajra.downloadmanager.json"
+
+  ; Register com.vajra.manager in Chrome and Edge registries (both 64-bit and 32-bit views)
+  SetRegView 64
   WriteRegStr HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager" "" "$INSTDIR\com.vajra.manager.json"
   WriteRegStr HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager" "" "$INSTDIR\com.vajra.manager.json"
+  SetRegView 32
+  WriteRegStr HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager" "" "$INSTDIR\com.vajra.manager.json"
+  WriteRegStr HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager" "" "$INSTDIR\com.vajra.manager.json"
+  SetRegView default
 !macroend
 
 !macro customUnInstall
-  ; Remove the aliases
+  ; Remove the aliases and native messaging manifests
   Delete "$INSTDIR\vdm.bat"
   Delete "$INSTDIR\vajra.bat"
   Delete "$INSTDIR\native-host.bat"
   Delete "$INSTDIR\com.vajra.manager.json"
+  Delete "$INSTDIR\com.vajra.downloadmanager.json"
 
-  ; Remove registries
+  ; Remove registries (both 64-bit and 32-bit views, HKLM and HKCU)
+  SetRegView 64
   DeleteRegKey HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager"
   DeleteRegKey HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager"
+  DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager"
+  DeleteRegKey HKCU "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager"
+  DeleteRegKey HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKCU "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager"
+
+  SetRegView 32
+  DeleteRegKey HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager"
+  DeleteRegKey HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager"
+  DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager"
+  DeleteRegKey HKCU "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager"
+  DeleteRegKey HKLM "Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKLM "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager"
+  DeleteRegKey HKCU "Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager"
+  SetRegView default
 !macroend
 
 ; ── Helper: StrContains ───────────────────────────────────────────────────────

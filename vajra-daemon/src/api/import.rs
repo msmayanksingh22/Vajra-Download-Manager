@@ -41,13 +41,14 @@ pub async fn import_ef2_handler(
                     queue_type: None,
                     sync_interval_secs: None,
                     tags: None,
+                    duplicate_action: None,
                 };
 
                 if let Some(path_or_file) = parts.next() {
                     if !path_or_file.is_empty() && path_or_file != "-" {
-                        let path = std::path::Path::new(path_or_file);
-                        if let Some(file_name) = path.file_name() {
-                            req.filename = Some(file_name.to_string_lossy().to_string());
+                        let clean = vajra_protocol::sanitize_filename(path_or_file);
+                        if !clean.is_empty() && clean != "download" {
+                            req.filename = Some(clean);
                         }
                     }
                 }
@@ -80,7 +81,7 @@ pub async fn decrypt_handler(
             .await
             .map_err(|e| DaemonError::BadRequest(e.to_string()))?;
         let temp_dir = std::env::temp_dir();
-        let temp_file = temp_dir.join("temp.dlc");
+        let temp_file = temp_dir.join(format!("vajra_dlc_{}.dlc", uuid::Uuid::new_v4()));
         std::fs::write(&temp_file, &file_bytes)
             .map_err(|e| DaemonError::Internal(e.to_string()))?;
 

@@ -18,9 +18,29 @@ const PORT = 6277;
 const BASE = `http://127.0.0.1:${PORT}/api/v1`;
 const HEALTH = `http://127.0.0.1:${PORT}/health`;
 
+let cachedToken: string | null = null;
+
+export async function getAuthToken(): Promise<string | null> {
+  if (cachedToken) return cachedToken;
+  try {
+    const token = await invoke<string>('get_api_token');
+    if (token) {
+      cachedToken = token.trim();
+      return cachedToken;
+    }
+  } catch {
+    // Running in browser or mock mode without Tauri backend
+  }
+  return null;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function req<T>(method: string, path: string, body?: any): Promise<T> {
+  const token = await getAuthToken();
   const opts: RequestInit = { method, headers: {} };
+  if (token) {
+    (opts.headers as any)['Authorization'] = `Bearer ${token}`;
+  }
   if (body) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (opts.headers as any)['Content-Type'] = 'application/json';
@@ -130,6 +150,7 @@ export const api = {
     }
     return r.json();
   },
+  getAuthToken: (): Promise<string | null> => getAuthToken(),
   openBrowserSetup: async (): Promise<void> => {
     try {
       await invoke('open_browser_setup');

@@ -120,6 +120,64 @@ pub struct DownloadRequest {
     pub tcp_multiplexing_opt: bool,
     #[serde(default)]
     pub adaptive_chunk_v2: bool,
+    #[serde(default)]
+    pub duplicate_action: Option<vajra_protocol::DuplicateAction>,
+}
+
+impl DownloadRequest {
+    /// Produces a sanitized clone of the request with all reusable credentials,
+    /// cookies, sensitive headers, and URL userinfo redacted prior to persistence.
+    pub fn to_redacted(&self) -> Self {
+        let mut cloned = self.clone();
+
+        // 1. Redact credentials fields
+        cloned.authorization = None;
+        cloned.cookie_header = None;
+
+        // 2. Strip userinfo from URL (e.g. http://user:pass@host/path -> http://host/path)
+        if let Ok(mut parsed) = url::Url::parse(&cloned.url) {
+            if !parsed.username().is_empty() || parsed.password().is_some() {
+                let _ = parsed.set_username("");
+                let _ = parsed.set_password(None);
+                cloned.url = parsed.to_string();
+            }
+        }
+
+        // 3. Strip userinfo from proxy
+        if let Some(ref proxy_url) = cloned.proxy {
+            if let Ok(mut parsed) = url::Url::parse(proxy_url) {
+                if !parsed.username().is_empty() || parsed.password().is_some() {
+                    let _ = parsed.set_username("");
+                    let _ = parsed.set_password(None);
+                    cloned.proxy = Some(parsed.to_string());
+                }
+            }
+        }
+
+        // 4. Strip userinfo from proxies list
+        cloned.proxies = cloned
+            .proxies
+            .into_iter()
+            .map(|p| {
+                if let Ok(mut parsed) = url::Url::parse(&p) {
+                    if !parsed.username().is_empty() || parsed.password().is_some() {
+                        let _ = parsed.set_username("");
+                        let _ = parsed.set_password(None);
+                        return parsed.to_string();
+                    }
+                }
+                p
+            })
+            .collect();
+
+        // 5. Redact daemon_config if attached
+        if let Some(ref mut cfg) = cloned.daemon_config {
+            cfg.api_token = None;
+            cfg.s3.secret_key = None;
+        }
+
+        cloned
+    }
 }
 
 /// Unique identifier for a download task.
@@ -245,7 +303,8 @@ impl DownloadTask {
             chunk_fractions: vec![],
             filename: request
                 .filename
-                .clone()
+                .as_deref()
+                .map(vajra_protocol::sanitize_filename)
                 .unwrap_or_else(|| detect_filename_from_url(&request.url)),
             dest_path: String::new(),
             error: None,
@@ -512,15 +571,22 @@ async fn run_download(
                     }
                 }
 
-                // Post-processing script
-                if let Some(script) = &req.post_processing_script {
-                    let script_path = Path::new(script);
-                    tracing::info!("Running post-processing script: {:?}", script_path);
-                    if let Err(e) =
-                        crate::post_processing::run_post_processing_script(script_path, &dest_path)
-                            .await
-                    {
-                        tracing::error!("Post-processing script failed: {}", e);
+                // Post-processing script: only execute trusted script configured in daemon configuration
+                if let Some(cfg) = &req.daemon_config {
+                    if let Some(ref script) = cfg.post_process_script {
+                        let script_path = Path::new(script);
+                        tracing::info!(
+                            "Running configured post-processing script: {:?}",
+                            script_path
+                        );
+                        if let Err(e) = crate::post_processing::run_post_processing_script(
+                            script_path,
+                            &dest_path,
+                        )
+                        .await
+                        {
+                            tracing::error!("Post-processing script failed: {}", e);
+                        }
                     }
                 }
 
@@ -781,10 +847,13 @@ async fn download_inner(
     let db = crate::db::Database::open(&vajra_protocol::db_path())
         .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))?;
 
+    let is_resumed_job = db.load_job(&id.to_string()).ok().flatten().is_some()
+        || db.load_validators(&id.to_string()).ok().flatten().is_some();
+
     // Ensure parent job record exists in SQLite so foreign key constraints on download_segments succeed
     let _ = db.upsert_job(&crate::db::JobRecord {
         id: id.to_string(),
-        request_json: serde_json::to_string(&req).unwrap_or_default(),
+        request_json: serde_json::to_string(&req.to_redacted()).unwrap_or_default(),
         state: "downloading".to_string(),
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
@@ -992,7 +1061,7 @@ async fn download_inner(
         .unwrap_or_else(|| detect_filename_from_url(&req.url));
 
     // Phase 5: Clean up Scene tags / junk characters using basic AI/ML heuristic
-    filename = crate::ai::clean_filename_ml(&filename);
+    filename = vajra_protocol::sanitize_filename(&crate::ai::clean_filename_ml(&filename));
 
     if !filename.contains('.') {
         if let Some(content_type) = headers
@@ -1023,12 +1092,43 @@ async fn download_inner(
                 _ => "",
             };
             if !ext.is_empty() {
-                filename = format!("{}.{}", filename, ext);
+                filename = vajra_protocol::sanitize_filename(&format!("{}.{}", filename, ext));
             }
         }
     }
 
-    let dest_path = req.dest_dir.join(&filename);
+    // ── Load segment state from SQLite ────────────────────────────────────
+    let saved_segments = if accepts_ranges && total_bytes > 0 {
+        db.load_segments(&id.to_string()).unwrap_or_default()
+    } else {
+        let _ = db.delete_segments(&id.to_string());
+        Vec::new()
+    };
+
+    let duplicate_action = req
+        .duplicate_action
+        .clone()
+        .or_else(|| {
+            req.daemon_config
+                .as_ref()
+                .map(|c| c.duplicate_action.clone())
+        })
+        .unwrap_or(vajra_protocol::DuplicateAction::AutoRename);
+
+    let is_resumed_job = is_resumed_job || !saved_segments.is_empty();
+
+    let (dest_path, clean_filename) = vajra_protocol::resolve_duplicate_path(
+        &req.dest_dir,
+        &filename,
+        if is_resumed_job {
+            vajra_protocol::DuplicateAction::Overwrite
+        } else {
+            duplicate_action
+        },
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
+
+    filename = clean_filename;
 
     let predicted_connections =
         crate::ai::predict_optimal_connections(total_bytes, Some(latency_ms));
@@ -1044,14 +1144,6 @@ async fn download_inner(
         p.filename = filename.clone();
         p.dest_path = dest_path.to_string_lossy().into_owned();
     });
-
-    // ── Load segment state from SQLite ────────────────────────────────────
-    let saved_segments = if accepts_ranges && total_bytes > 0 {
-        db.load_segments(&id.to_string()).unwrap_or_default()
-    } else {
-        let _ = db.delete_segments(&id.to_string());
-        Vec::new()
-    };
 
     // ── Pre-flight Remote Resource Identity Validation (RFC 9110) ─────────
     let saved_validators = db.load_validators(&id.to_string()).ok().flatten();
@@ -2019,7 +2111,8 @@ fn detect_filename_from_url(url: &str) -> String {
         .next_back()
         .filter(|s| !s.is_empty())
         .unwrap_or("download");
-    percent_decode(name).unwrap_or_else(|| name.to_string())
+    let decoded = percent_decode(name).unwrap_or_else(|| name.to_string());
+    vajra_protocol::sanitize_filename(&decoded)
 }
 
 fn detect_filename_from_header(headers: &reqwest::header::HeaderMap) -> Option<String> {
@@ -2037,7 +2130,7 @@ fn detect_filename_from_header(headers: &reqwest::header::HeaderMap) -> Option<S
                 .or_else(|| rest.strip_prefix("utf-8''"))
             {
                 if let Some(decoded) = percent_decode(rest) {
-                    return Some(decoded);
+                    return Some(vajra_protocol::sanitize_filename(&decoded));
                 }
             }
         }
@@ -2045,7 +2138,8 @@ fn detect_filename_from_header(headers: &reqwest::header::HeaderMap) -> Option<S
         if let Some(rest) = part.strip_prefix("filename=") {
             let raw = rest.trim_matches('"').to_string();
             // Decode RFC 2047 encoded-word: =?charset?encoding?text?=
-            plain_filename = Some(decode_rfc2047(&raw));
+            let decoded = decode_rfc2047(&raw);
+            plain_filename = Some(vajra_protocol::sanitize_filename(&decoded));
         }
     }
     plain_filename
@@ -2222,4 +2316,71 @@ async fn resolve_doh(host: &str) -> anyhow::Result<std::net::IpAddr> {
         }
     }
     anyhow::bail!("No DNS answer found")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_redacted_strips_all_credentials() {
+        let cfg = vajra_protocol::DaemonConfig {
+            api_token: Some("secret-token-12345678".to_string()),
+            s3: vajra_protocol::S3Config {
+                secret_key: Some("s3-secret-key-abcdef".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let req = DownloadRequest {
+            url: "https://user:password123@example.com/secure/file.zip".to_string(),
+            dest_dir: PathBuf::from("C:\\Downloads"),
+            filename: Some("file.zip".to_string()),
+            max_connections: 4,
+            priority: vajra_protocol::Priority::Normal,
+            cookie_header: Some("session_id=abcdef123456; token=xyz".to_string()),
+            authorization: Some("Bearer eyJhbGciOi...secret".to_string()),
+            proxy: Some("http://proxyuser:proxypass@proxy.corp:8080".to_string()),
+            proxies: vec![
+                "http://u1:p1@proxy1.local:3128".to_string(),
+                "http://cleanproxy.local:3128".to_string(),
+            ],
+            daemon_config: Some(cfg),
+            tags: vec!["secure".to_string()],
+            ..Default::default()
+        };
+
+        let redacted = req.to_redacted();
+
+        // 1. Authorization & Cookie headers redacted
+        assert_eq!(redacted.authorization, None);
+        assert_eq!(redacted.cookie_header, None);
+
+        // 2. URL userinfo stripped
+        assert_eq!(redacted.url, "https://example.com/secure/file.zip");
+        assert!(!redacted.url.contains("user"));
+        assert!(!redacted.url.contains("password123"));
+
+        // 3. Proxy userinfo stripped
+        assert_eq!(redacted.proxy, Some("http://proxy.corp:8080/".to_string()));
+        assert!(!redacted.proxy.as_ref().unwrap().contains("proxypass"));
+
+        // 4. Proxies list userinfo stripped
+        assert_eq!(redacted.proxies[0], "http://proxy1.local:3128/");
+        assert_eq!(redacted.proxies[1], "http://cleanproxy.local:3128");
+
+        // 5. Config secrets stripped
+        let red_cfg = redacted.daemon_config.as_ref().unwrap();
+        assert_eq!(red_cfg.api_token, None);
+        assert_eq!(red_cfg.s3.secret_key, None);
+
+        // 6. JSON serialization check
+        let json_str = serde_json::to_string(&redacted).unwrap();
+        assert!(!json_str.contains("password123"));
+        assert!(!json_str.contains("proxypass"));
+        assert!(!json_str.contains("secret-token"));
+        assert!(!json_str.contains("s3-secret-key"));
+        assert!(!json_str.contains("session_id=abcdef123456"));
+    }
 }

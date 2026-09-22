@@ -48,7 +48,7 @@ export function GrabberDialog({ onClose }: { onClose: () => void }) {
     [],
   );
 
-  function handleStart(e: React.FormEvent) {
+  async function handleStart(e: React.FormEvent) {
     e.preventDefault();
     if (!url.trim()) return;
     if (running) {
@@ -60,8 +60,10 @@ export function GrabberDialog({ onClose }: { onClose: () => void }) {
     setSelected(new Set());
     setRunning(true);
     setGrabError(null);
+    const token = await api.getAuthToken();
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
     const es = new EventSource(
-      `http://127.0.0.1:6277/api/v1/spider?url=${encodeURIComponent(url)}`,
+      `http://127.0.0.1:6277/api/v1/spider?url=${encodeURIComponent(url)}${tokenParam}`,
     );
     esRef.current = es;
     es.onmessage = (ev) => {

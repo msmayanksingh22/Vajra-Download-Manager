@@ -9618,14 +9618,18 @@ name = "vajra-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "console",
  "futures-util",
+ "hex 0.4.3",
  "indicatif",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
  "tokio",
  "uuid",
  "vajra-protocol",
@@ -9646,6 +9650,7 @@ dependencies = [
  "hex 0.4.3",
  "hmac 0.13.0",
  "percent-encoding",
+ "rand 0.8.6",
  "regex",
  "reqwest 0.12.28",
  "rss",
@@ -9655,7 +9660,9 @@ dependencies = [
  "serde_json",
  "sevenz-rust",
  "sha2 0.11.0",
+ "subtle",
  "sysinfo",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
@@ -9727,8 +9734,11 @@ name = "vajra-protocol"
 version = "0.1.0"
 dependencies = [
  "dirs-next",
+ "hex 0.4.3",
+ "rand 0.8.6",
  "serde",
  "serde_json",
+ "tempfile",
  "utoipa",
  "uuid",
 ]
@@ -9753,6 +9763,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tokio",
+ "vajra-protocol",
 ]
 
 [[package]]

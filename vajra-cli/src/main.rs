@@ -19,6 +19,9 @@ use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use vajra_protocol::{AddDownloadRequest, DownloadAction, PatchDownloadRequest, DEFAULT_PORT};
 
+pub const VAJRA_EXTENSION_ID: &str = "mfdepghakanbpamaakojoaogglepehfh";
+pub const MAX_NATIVE_MSG_LEN: usize = 1024 * 1024; // 1 MB (Chrome Native Messaging limit)
+
 fn api(path: &str) -> String {
     let port = std::env::var("VAJRA_PORT")
         .ok()
@@ -38,6 +41,10 @@ fn api(path: &str) -> String {
     styles = clap_styles()
 )]
 struct Cli {
+    /// API authentication token (overrides VAJRA_API_TOKEN and api.token file)
+    #[arg(long, global = true)]
+    token: Option<String>,
+
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -133,6 +140,13 @@ enum Cmd {
 
     /// Ensure the daemon is running (starts it if not)
     Daemon,
+
+    /// Native messaging host for browser extensions
+    #[command(alias = "native-host")]
+    Host {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
@@ -143,6 +157,18 @@ async fn main() {
         eprintln!("{} {e:#}", style("error:").red().bold());
         process::exit(1);
     }
+}
+
+fn resolve_token(cli_token: Option<String>) -> Option<String> {
+    cli_token
+        .or_else(|| std::env::var("VAJRA_API_TOKEN").ok())
+        .or_else(|| {
+            let path = vajra_protocol::token_path();
+            std::fs::read_to_string(&path)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 async fn run() -> Result<()> {
@@ -189,8 +215,51 @@ async fn run() -> Result<()> {
         args = new_args;
     }
 
+    // Check for Chrome / Edge Native Messaging invocation.
+    // When Chrome launches the host binary, it calls:
+    // "<exe_path>" "<origin>" [--parent-window=<hwnd>]
+    // where origin is e.g. "chrome-extension://mfdepghakanbpamaakojoaogglepehfh/"
+    let is_native_host_call = args.len() > 1
+        && args.iter().skip(1).any(|a| {
+            a.starts_with("chrome-extension://")
+                || a.starts_with("moz-extension://")
+                || a.starts_with("extension://")
+                || a == "host"
+                || a == "native-host"
+        });
+
+    if is_native_host_call {
+        for arg in &args[1..] {
+            if let Some(rest) = arg.strip_prefix("chrome-extension://") {
+                let ext_id = rest.trim_end_matches('/');
+                if ext_id != VAJRA_EXTENSION_ID {
+                    eprintln!("[native-host] Unauthorized extension ID: {ext_id}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        return cmd_host().await;
+    }
+
     let cli = Cli::parse_from(args);
-    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
+
+    if matches!(cli.cmd, Cmd::Host { .. }) {
+        return cmd_host().await;
+    }
+
+    let token = resolve_token(cli.token);
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Some(tok) = &token {
+        if let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {tok}")) {
+            headers.insert(reqwest::header::AUTHORIZATION, val);
+        }
+    }
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .default_headers(headers)
+        .build()?;
 
     // Auto-start daemon if not reachable
     if !matches!(cli.cmd, Cmd::Daemon) {
@@ -245,6 +314,7 @@ async fn run() -> Result<()> {
         Cmd::Inspect { url } => cmd_inspect(&client, &url).await,
         Cmd::Import { file, queue_only } => cmd_import(&client, &file, queue_only).await,
         Cmd::Daemon => cmd_daemon().await,
+        Cmd::Host { .. } => cmd_host().await,
     }
 }
 
@@ -295,6 +365,7 @@ async fn cmd_get(
         queue_type: None,
         sync_interval_secs: None,
         tags: Some(vec!["cli".to_string()]),
+        duplicate_action: None,
     };
 
     let resp = client
@@ -635,6 +706,80 @@ async fn cmd_daemon() -> Result<()> {
     Ok(())
 }
 
+pub fn handle_native_message(msg: &serde_json::Value) -> serde_json::Value {
+    let cmd = msg.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
+    match cmd {
+        "get_token" | "token" => {
+            // Retrieve or generate token (supports fresh install before daemon runs)
+            let token = vajra_protocol::get_or_generate_token().ok();
+            let _ = start_daemon();
+            serde_json::json!({ "ok": true, "token": token })
+        }
+        "start" => {
+            let _ = start_daemon();
+            serde_json::json!({ "ok": true, "status": "started" })
+        }
+        "open" => {
+            let _ = open_ui();
+            serde_json::json!({ "ok": true, "status": "opened" })
+        }
+        _ => serde_json::json!({ "ok": false, "error": "unknown command" }),
+    }
+}
+
+pub fn process_native_frame<R: std::io::Read, W: std::io::Write>(
+    mut reader: R,
+    mut writer: W,
+) -> Result<bool> {
+    use std::io::ErrorKind;
+    let mut len_buf = [0u8; 4];
+    if let Err(e) = reader.read_exact(&mut len_buf) {
+        if e.kind() == ErrorKind::UnexpectedEof || e.kind() == ErrorKind::BrokenPipe {
+            return Ok(false);
+        }
+        return Err(e.into());
+    }
+
+    let len = u32::from_ne_bytes(len_buf) as usize;
+    if len > MAX_NATIVE_MSG_LEN {
+        eprintln!("[native-host] Message length {len} exceeds 1MB limit");
+        return Ok(false);
+    }
+
+    let mut msg_buf = vec![0u8; len];
+    if let Err(e) = reader.read_exact(&mut msg_buf) {
+        if e.kind() == ErrorKind::UnexpectedEof || e.kind() == ErrorKind::BrokenPipe {
+            return Ok(false);
+        }
+        return Err(e.into());
+    }
+
+    let response = match serde_json::from_slice::<serde_json::Value>(&msg_buf) {
+        Ok(msg) => handle_native_message(&msg),
+        Err(e) => {
+            serde_json::json!({ "ok": false, "error": format!("Invalid JSON: {}", e) })
+        }
+    };
+
+    let res_bytes = serde_json::to_vec(&response)?;
+    let res_len = (res_bytes.len() as u32).to_ne_bytes();
+    writer.write_all(&res_len)?;
+    writer.write_all(&res_bytes)?;
+    writer.flush()?;
+
+    Ok(true)
+}
+
+async fn cmd_host() -> Result<()> {
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    let mut stdin_lock = stdin.lock();
+    let mut stdout_lock = stdout.lock();
+
+    while let Ok(true) = process_native_frame(&mut stdin_lock, &mut stdout_lock) {}
+    Ok(())
+}
+
 // ─── Progress watcher ─────────────────────────────────────────────────────────
 
 async fn watch_progress(client: &Client, id: &str) -> Result<()> {
@@ -719,27 +864,69 @@ async fn ensure_daemon(client: &Client) -> Result<()> {
 }
 
 fn start_daemon() -> Result<()> {
-    let exe = std::env::current_exe()?;
-    let daemon = exe.with_file_name(if cfg!(windows) {
-        "vajrad.exe"
-    } else {
-        "vajrad"
-    });
-    if !daemon.exists() {
-        anyhow::bail!("vajrad not found at {:?}", daemon);
-    }
-    #[cfg(windows)]
+    #[cfg(test)]
     {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new(&daemon)
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .spawn()?;
+        Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(not(test))]
     {
-        std::process::Command::new(&daemon).spawn()?;
+        let exe = std::env::current_exe()?;
+        let daemon = exe.with_file_name(if cfg!(windows) {
+            "vajrad.exe"
+        } else {
+            "vajrad"
+        });
+        if !daemon.exists() {
+            anyhow::bail!("vajrad not found at {:?}", daemon);
+        }
+        let mut cmd = std::process::Command::new(&daemon);
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        cmd.spawn()?;
+        Ok(())
     }
-    Ok(())
+}
+
+fn open_ui() -> Result<()> {
+    #[cfg(test)]
+    {
+        Ok(())
+    }
+    #[cfg(not(test))]
+    {
+        let exe = std::env::current_exe()?;
+        let ui_names = if cfg!(windows) {
+            &["Vajra.exe", "vajra-ui-tauri.exe"][..]
+        } else {
+            &["Vajra", "vajra-ui-tauri"][..]
+        };
+
+        for name in ui_names {
+            let ui_path = exe.with_file_name(name);
+            if ui_path.exists() {
+                let mut cmd = std::process::Command::new(&ui_path);
+                cmd.stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null());
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                }
+                cmd.spawn()?;
+                return Ok(());
+            }
+        }
+
+        start_daemon()
+    }
 }
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
@@ -772,4 +959,104 @@ fn clap_styles() -> clap::builder::Styles {
         .usage(AnsiColor::Yellow.on_default() | Effects::BOLD)
         .literal(AnsiColor::Cyan.on_default() | Effects::BOLD)
         .placeholder(AnsiColor::White.on_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn test_handle_native_message_unknown_cmd() {
+        let msg = serde_json::json!({ "cmd": "invalid_unknown_action" });
+        let resp = handle_native_message(&msg);
+        assert_eq!(resp["ok"], false);
+        assert_eq!(resp["error"], "unknown command");
+    }
+
+    #[test]
+    fn test_handle_native_message_token_bootstrap() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        std::env::set_var("VAJRA_DATA_DIR", temp.path());
+
+        let msg = serde_json::json!({ "cmd": "get_token" });
+        let resp = handle_native_message(&msg);
+        assert_eq!(resp["ok"], true);
+        let tok = resp["token"].as_str().unwrap();
+        assert_eq!(tok.len(), 64);
+        assert!(vajra_protocol::token_path().exists());
+
+        // Repeated request returns the same token
+        let resp2 = handle_native_message(&msg);
+        assert_eq!(resp2["token"].as_str().unwrap(), tok);
+    }
+
+    #[test]
+    fn test_process_native_frame_roundtrip() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        std::env::set_var("VAJRA_DATA_DIR", temp.path());
+
+        // Prepare length-prefixed request
+        let req_json = serde_json::to_vec(&serde_json::json!({ "cmd": "get_token" })).unwrap();
+        let req_len = (req_json.len() as u32).to_ne_bytes();
+        let mut input = Vec::new();
+        input.extend_from_slice(&req_len);
+        input.extend_from_slice(&req_json);
+
+        let mut output = Vec::new();
+        let cont = process_native_frame(&input[..], &mut output).unwrap();
+        assert!(cont);
+
+        // Parse response from output
+        assert!(output.len() >= 4);
+        let res_len = u32::from_ne_bytes(output[0..4].try_into().unwrap()) as usize;
+        assert_eq!(output.len(), 4 + res_len);
+        let res_json: serde_json::Value = serde_json::from_slice(&output[4..]).unwrap();
+        assert_eq!(res_json["ok"], true);
+        assert!(res_json["token"].is_string());
+    }
+
+    #[test]
+    fn test_process_native_frame_invalid_json() {
+        let bad_json = b"{ not valid json }";
+        let req_len = (bad_json.len() as u32).to_ne_bytes();
+        let mut input = Vec::new();
+        input.extend_from_slice(&req_len);
+        input.extend_from_slice(bad_json);
+
+        let mut output = Vec::new();
+        let cont = process_native_frame(&input[..], &mut output).unwrap();
+        assert!(cont);
+
+        let res_len = u32::from_ne_bytes(output[0..4].try_into().unwrap()) as usize;
+        let res_json: serde_json::Value = serde_json::from_slice(&output[4..4 + res_len]).unwrap();
+        assert_eq!(res_json["ok"], false);
+        assert!(res_json["error"].as_str().unwrap().contains("Invalid JSON"));
+    }
+
+    #[test]
+    fn test_process_native_frame_oversized() {
+        let mut input = Vec::new();
+        let huge_len = (2 * 1024 * 1024u32).to_ne_bytes(); // 2MB > 1MB limit
+        input.extend_from_slice(&huge_len);
+
+        let mut output = Vec::new();
+        let cont = process_native_frame(&input[..], &mut output).unwrap();
+        assert!(!cont, "Oversized frame must return false (terminate loop)");
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_process_native_frame_eof() {
+        let input: &[u8] = &[];
+        let mut output = Vec::new();
+        let cont = process_native_frame(input, &mut output).unwrap();
+        assert!(!cont, "Clean EOF must return false without error");
+        assert!(output.is_empty());
+    }
 }

@@ -92,11 +92,44 @@ pub fn state_str(state: &TaskState) -> &'static str {
     }
 }
 
-use utoipa::OpenApi;
+use utoipa::{
+    openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
+    Modify, OpenApi,
+};
 use vajra_protocol::*;
+
+pub struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "bearer_auth",
+                SecurityScheme::Http(
+                    HttpBuilder::new()
+                        .scheme(HttpAuthScheme::Bearer)
+                        .bearer_format("Hex Token")
+                        .description(Some(
+                            "Vajra daemon authentication header: `Authorization: Bearer <token>`",
+                        ))
+                        .build(),
+                ),
+            );
+        }
+    }
+}
 
 #[derive(OpenApi)]
 #[openapi(
+    info(
+        title = "Vajra Daemon API",
+        version = "0.1.0",
+        description = "Vajra Download Manager API"
+    ),
+    modifiers(&SecurityAddon),
+    security(
+        ("bearer_auth" = [])
+    ),
     paths(
         crate::api::handlers::health,
         crate::api::handlers::add_download,
@@ -104,12 +137,26 @@ use vajra_protocol::*;
         crate::api::handlers::get_download,
         crate::api::handlers::patch_download,
         crate::api::handlers::delete_download,
+        crate::api::handlers::preview_download,
+        crate::api::handlers::inspect_url,
+        crate::api::handlers::intercept_url,
         crate::api::handlers::stats,
+        crate::api::handlers::get_config,
+        crate::api::handlers::patch_config,
+        crate::api::handlers::export_config,
+        crate::api::handlers::import_config,
+        crate::api::handlers::get_vault_credentials,
+        crate::api::handlers::add_vault_credential,
+        crate::api::handlers::delete_vault_credential,
+        crate::api::handlers::add_rss_feed,
+        crate::api::handlers::get_all_rss_feeds,
+        crate::api::handlers::delete_rss_feed,
     ),
     components(
         schemas(
             AddDownloadRequest,
             AddDownloadResponse,
+            DownloadList,
             DownloadInfo,
             DownloadStatus,
             SegmentInfo,
@@ -122,6 +169,18 @@ use vajra_protocol::*;
             InspectResponse,
             StatsResponse,
             QueueType,
+            DaemonConfig,
+            ProxyConfig,
+            CategoryRule,
+            S3Config,
+            PostQueueAction,
+            DuplicateAction,
+            AddVaultCredentialRequest,
+            VaultCredentialResponse,
+            AddRssFeedRequest,
+            RssFeed,
+            ApiErrorResponse,
+            ApiErrorDetail,
         )
     ),
     tags(
@@ -129,3 +188,39 @@ use vajra_protocol::*;
     )
 )]
 pub struct ApiDoc;
+
+#[cfg(test)]
+mod tests {
+    use utoipa::OpenApi;
+
+    use super::*;
+
+    #[test]
+    fn test_openapi_schema_generation() {
+        let openapi = ApiDoc::openapi();
+        assert_eq!(openapi.info.title, "Vajra Daemon API");
+        assert_eq!(openapi.info.version, "0.1.0");
+
+        let paths = &openapi.paths.paths;
+        assert!(paths.contains_key("/api/v1/downloads"));
+        assert!(paths.contains_key("/api/v1/downloads/{id}"));
+        assert!(paths.contains_key("/api/v1/config"));
+        assert!(paths.contains_key("/api/v1/config/import"));
+        assert!(paths.contains_key("/api/v1/config/export"));
+        assert!(paths.contains_key("/api/v1/downloads/{id}/preview"));
+        assert!(paths.contains_key("/health"));
+        assert!(paths.contains_key("/api/v1/stats"));
+
+        let schemas = &openapi.components.as_ref().unwrap().schemas;
+        assert!(schemas.contains_key("ApiErrorResponse"));
+        assert!(schemas.contains_key("ApiErrorDetail"));
+        assert!(schemas.contains_key("DaemonConfig"));
+        assert!(schemas.contains_key("AddDownloadRequest"));
+
+        let sec_schemes = &openapi.components.as_ref().unwrap().security_schemes;
+        assert!(sec_schemes.contains_key("bearer_auth"));
+
+        let json = openapi.to_json().unwrap();
+        assert!(!json.is_empty());
+    }
+}

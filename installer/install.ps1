@@ -13,6 +13,19 @@ if ($Uninstall) {
     Write-Host "Uninstalling Vajra..." -ForegroundColor Yellow
 
     Remove-ItemProperty $RegKey_Run "VajraDownloadManager" -ErrorAction SilentlyContinue
+
+    # Remove Native Messaging registrations
+    @("HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager",
+      "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager",
+      "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager",
+      "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager",
+      "HKLM:\Software\Google\Chrome\NativeMessagingHosts\com.vajra.manager",
+      "HKLM:\Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager",
+      "HKLM:\Software\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager",
+      "HKLM:\Software\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager") | ForEach-Object {
+        Remove-Item -Path $_ -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     Remove-Item $VajraDir -Recurse -Force -ErrorAction SilentlyContinue
 
     Write-Host "Vajra uninstalled." -ForegroundColor Green
@@ -37,9 +50,9 @@ if (-not (Test-Path $BuildDir)) {
 # Create install directory
 New-Item -ItemType Directory -Force -Path $VajraDir | Out-Null
 
-# Copy the Tauri application binary, daemon sidecar, and any required DLLs.
+# Copy the application binary, CLI, daemon sidecar, and any required DLLs.
 # We skip unrelated test/CLI binaries from the Cargo workspace output.
-$RequiredFiles = @('vajra-ui-tauri.exe', 'vajrad.exe')
+$RequiredFiles = @('vajra-ui-tauri.exe', 'vajrad.exe', 'vajra-cli.exe')
 Get-ChildItem -Path $BuildDir -File | Where-Object {
     $_.Name -in $RequiredFiles -or $_.Extension -eq '.dll'
 } | ForEach-Object {
@@ -52,6 +65,37 @@ if (Test-Path $ResourceSrc) {
     Copy-Item $ResourceSrc "$VajraDir\resources" -Recurse -Force
     Write-Host "Copied bundled resources" -ForegroundColor Green
 }
+
+# Create Native Messaging manifest and register host
+$escapedPath = "$VajraDir\vajra-cli.exe" -replace '\\', '\\'
+$manifestContent = @"
+{
+  "name": "com.vajra.manager",
+  "description": "Vajra Native Messaging Host",
+  "path": "$escapedPath",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://mfdepghakanbpamaakojoaogglepehfh/"
+  ]
+}
+"@
+$manifestFile = "$VajraDir\com.vajra.manager.json"
+Set-Content -Path $manifestFile -Value $manifestContent -Encoding UTF8
+
+# Register in Chrome and Edge registries (HKCU and HKLM)
+$targetRegHives = @("HKCU:\Software", "HKLM:\Software")
+foreach ($hive in $targetRegHives) {
+    Remove-Item -Path "$hive\Google\Chrome\NativeMessagingHosts\com.vajra.downloadmanager" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$hive\Microsoft\Edge\NativeMessagingHosts\com.vajra.downloadmanager" -Recurse -Force -ErrorAction SilentlyContinue
+
+    $chromeKey = "$hive\Google\Chrome\NativeMessagingHosts\com.vajra.manager"
+    $edgeKey = "$hive\Microsoft\Edge\NativeMessagingHosts\com.vajra.manager"
+    New-Item -Path $chromeKey -Force -ErrorAction SilentlyContinue | Out-Null
+    Set-ItemProperty -Path $chromeKey -Name '(Default)' -Value $manifestFile -ErrorAction SilentlyContinue
+    New-Item -Path $edgeKey -Force -ErrorAction SilentlyContinue | Out-Null
+    Set-ItemProperty -Path $edgeKey -Name '(Default)' -Value $manifestFile -ErrorAction SilentlyContinue
+}
+Write-Host "Configured Native Messaging host" -ForegroundColor Green
 
 # Ensure the main executable exists
 $exePath = "$VajraDir\vajra-ui-tauri.exe"

@@ -80,7 +80,7 @@ export function SpiderDialog({ open, onOpenChange, onBatchAdd }: SpiderDialogPro
     [],
   );
 
-  function handleStart(e: React.FormEvent) {
+  async function handleStart(e: React.FormEvent) {
     e.preventDefault();
     if (!url.trim()) return;
     if (running) {
@@ -91,7 +91,9 @@ export function SpiderDialog({ open, onOpenChange, onBatchAdd }: SpiderDialogPro
     setResults([]);
     setSelected(new Set());
     setRunning(true);
-    const qs = `url=${encodeURIComponent(url)}&depth=${depth}&regex=${encodeURIComponent(regexStr)}&extensions=${encodeURIComponent(extStr)}`;
+    const token = await api.getAuthToken();
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+    const qs = `url=${encodeURIComponent(url)}&depth=${depth}&regex=${encodeURIComponent(regexStr)}&extensions=${encodeURIComponent(extStr)}${tokenParam}`;
     const es = new EventSource(`http://127.0.0.1:6277/api/v1/spider?${qs}`);
     esRef.current = es;
     es.onmessage = (ev) => {

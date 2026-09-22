@@ -34,6 +34,27 @@ pub struct AppState {
     /// Shutdown signal sender for graceful termination (e.g. post-queue ExitApp).
     pub shutdown_tx: tokio::sync::Mutex<Option<tokio::sync::broadcast::Sender<()>>>,
     pub ab_test: Arc<vajra_engine::ab_test::ExperimentManager>,
+    pub inspect_limiter: tokio::sync::Mutex<Vec<Instant>>,
+    pub spider_limiter: tokio::sync::Mutex<Vec<Instant>>,
+    pub add_download_limiter: tokio::sync::Mutex<Vec<Instant>>,
+}
+
+impl AppState {
+    pub async fn check_rate_limit(
+        limiter: &tokio::sync::Mutex<Vec<Instant>>,
+        max_calls: usize,
+        window: std::time::Duration,
+    ) -> bool {
+        let mut timestamps = limiter.lock().await;
+        let now = Instant::now();
+        timestamps.retain(|t| now.duration_since(*t) <= window);
+        if timestamps.len() >= max_calls {
+            false
+        } else {
+            timestamps.push(now);
+            true
+        }
+    }
 }
 
 // â”€â”€â”€ Error type â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -44,6 +65,8 @@ pub enum DaemonError {
     BadRequest(String),
     #[error("Not found: {0}")]
     NotFound(Uuid),
+    #[error("Rate limited: {0}")]
+    RateLimited(String),
     #[error("Internal error: {0}")]
     Internal(String),
     #[error("Database error: {0}")]
@@ -59,12 +82,22 @@ impl axum::response::IntoResponse for DaemonError {
                 "not_found",
                 format!("Download {id} not found"),
             ),
+            DaemonError::RateLimited(msg) => {
+                (StatusCode::TOO_MANY_REQUESTS, "rate_limited", msg.clone())
+            }
             DaemonError::Internal(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal_error",
                 msg.clone(),
             ),
-            DaemonError::Db(e) => (StatusCode::INTERNAL_SERVER_ERROR, "db_error", e.to_string()),
+            DaemonError::Db(e) => {
+                tracing::error!("Database error: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "db_error",
+                    "An internal database error occurred".to_string(),
+                )
+            }
         };
         (
             status,
@@ -122,7 +155,21 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&app_dir).context("Failed to create app data directory")?;
 
     // Load config
-    let config = load_config(&app_dir);
+    let mut config = load_config(&app_dir);
+
+    // VAJRA_PORT env var override
+    if let Ok(env_port) = std::env::var("VAJRA_PORT") {
+        if let Ok(p) = env_port.parse::<u16>() {
+            tracing::info!("Overriding listen_port with VAJRA_PORT={}", p);
+            config.listen_port = p;
+        } else {
+            tracing::warn!("Invalid VAJRA_PORT environment variable: {}", env_port);
+        }
+    }
+
+    // Authoritative Token Bootstrap
+    let _token = crate::api::auth::bootstrap_api_token(&mut config.api_token)
+        .context("Failed to bootstrap API token")?;
     let port = config.listen_port;
 
     // Open database
@@ -158,12 +205,15 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         manager: manager.clone(),
         database: Mutex::new(database),
-        config: RwLock::new(config),
+        config: RwLock::new(config.clone()),
         sse,
         speed_tracker: speed_tracker.clone(),
         started_at: Instant::now(),
         shutdown_tx: Mutex::new(Some(shutdown_tx)),
         ab_test,
+        inspect_limiter: tokio::sync::Mutex::new(Vec::new()),
+        spider_limiter: tokio::sync::Mutex::new(Vec::new()),
+        add_download_limiter: tokio::sync::Mutex::new(Vec::new()),
     });
 
     let manager_clone = manager.clone();
@@ -227,10 +277,27 @@ async fn main() -> anyhow::Result<()> {
 
     let mut recovered_count = 0;
     for job in all_jobs {
-        if let (Ok(id), Ok(request)) = (
+        if let (Ok(id), Ok(mut request)) = (
             Uuid::parse_str(&job.id),
             serde_json::from_str::<vajra_engine::download_task::DownloadRequest>(&job.request_json),
         ) {
+            // Re-derive authorization credentials from encrypted vault if missing in persisted request_json
+            if request.authorization.is_none() {
+                if let Ok(parsed_url) = url::Url::parse(&request.url) {
+                    if let Some(domain) = parsed_url.host_str() {
+                        let db = state.database.lock().await;
+                        if let Ok(Some(cred)) = db.get_credential_by_domain(domain) {
+                            let encoded = base64::Engine::encode(
+                                &base64::engine::general_purpose::STANDARD,
+                                format!("{}:{}", cred.username, cred.password),
+                            );
+                            request.authorization = Some(format!("Basic {}", encoded));
+                        }
+                    }
+                }
+            }
+            request.daemon_config = Some(config.clone());
+
             let db_state = job.state.as_str();
             let is_active = matches!(
                 db_state,

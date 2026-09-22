@@ -44,7 +44,8 @@ chrome.storage.local.get({
   interceptAll: true,
   minSizeMB: 0,
   vajra_enabled: true,
-  vajra_save_path: ''
+  vajra_save_path: '',
+  api_token: ''
 }, (s) => {
   settings = {
     interceptAll:    s.interceptAll !== false,
@@ -52,6 +53,10 @@ chrome.storage.local.get({
     vajra_enabled:   s.vajra_enabled !== false,
     defaultSavePath: (s.vajra_save_path as string) || ''
   };
+  if (s.api_token && typeof s.api_token === 'string') {
+    const tok = s.api_token.trim();
+    if (tok.length >= 16 && !tok.includes('***')) cachedApiToken = tok;
+  }
   console.log('[Vajra] Loaded settings:', settings);
 });
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -61,7 +66,47 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if ('minSizeMB'     in changes) settings.minSizeMB       = (changes.minSizeMB.newValue as number) ?? 0;
   if ('vajra_enabled' in changes) settings.vajra_enabled   = changes.vajra_enabled.newValue !== false;
   if ('vajra_save_path' in changes) settings.defaultSavePath = (changes.vajra_save_path.newValue as string) || '';
+  if ('api_token' in changes) {
+    const newTok = changes.api_token.newValue;
+    cachedApiToken = typeof newTok === 'string' && newTok.trim().length >= 16 && !newTok.includes('***') ? newTok.trim() : null;
+  }
 });
+
+let cachedApiToken: string | null = null;
+
+async function getAuthToken(): Promise<string | null> {
+  if (cachedApiToken) return cachedApiToken;
+
+  const stored = await new Promise<{ api_token?: string }>((resolve) => {
+    chrome.storage.local.get(['api_token'], (res) => resolve(res || {}));
+  });
+  if (stored.api_token && typeof stored.api_token === 'string') {
+    const tok = stored.api_token.trim();
+    if (tok.length >= 16 && !tok.includes('***')) {
+      cachedApiToken = tok;
+      return cachedApiToken;
+    }
+  }
+
+  return new Promise<string | null>((resolve) => {
+    try {
+      chrome.runtime.sendNativeMessage('com.vajra.manager', { cmd: 'get_token' }, (res: any) => {
+        if (!chrome.runtime.lastError && res && res.token && typeof res.token === 'string') {
+          const tok = res.token.trim();
+          if (tok.length >= 16 && !tok.includes('***')) {
+            cachedApiToken = tok;
+            chrome.storage.local.set({ api_token: tok });
+            resolve(tok);
+            return;
+          }
+        }
+        resolve(null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
 
 // ── Daemon health-check ───────────────────────────────────────────────────────
 
@@ -130,9 +175,15 @@ async function addToDaemon(url, filename, referrer, cookieHeader, useYtdlp = fal
     use_ytdlp:       useYtdlp,
   };
 
+  const token = await getAuthToken();
+  const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) {
+    reqHeaders['Authorization'] = `Bearer ${token}`;
+  }
+
   const r = await fetch(`${API}/intercept`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: reqHeaders,
     body:    JSON.stringify(body),
     signal:  AbortSignal.timeout(5000),
   });
@@ -394,7 +445,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       return true;
 
     case 'get_status':
-      reply({ connected: daemonAlive, settings, daemonUrl: DAEMON });
+      reply({ connected: daemonAlive, settings, daemonUrl: DAEMON, hasToken: Boolean(cachedApiToken) });
+      return true;
+
+    case 'get_token':
+      getAuthToken().then(token => reply({ ok: !!token, token })).catch(() => reply({ ok: false, token: null }));
       return true;
 
     case 'save_settings': {

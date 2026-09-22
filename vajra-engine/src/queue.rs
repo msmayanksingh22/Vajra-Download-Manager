@@ -323,6 +323,20 @@ impl DownloadManager {
         }
     }
 
+    /// Update authorization of a download task (e.g. re-derived from vault on resume).
+    pub async fn update_authorization(&self, id: TaskId, auth: Option<String>) {
+        let mut entries = self.entries.write().await;
+        if let Some(entry) = entries.get_mut(&id) {
+            entry.request.authorization = auth;
+        }
+    }
+
+    /// Retrieve the DownloadRequest for a task by ID.
+    pub async fn get_request(&self, id: TaskId) -> Option<crate::download_task::DownloadRequest> {
+        let entries = self.entries.read().await;
+        entries.get(&id).map(|entry| entry.request.clone())
+    }
+
     /// Pause a specific download by ID.
     pub async fn pause(&self, id: TaskId) {
         let entries = self.entries.read().await;
@@ -721,6 +735,7 @@ fn get_entry_progress(entry: &QueueEntry) -> DownloadProgress {
             .unwrap_or("download")
             .to_string()
     });
+    let dest_file_path = entry.request.dest_dir.join(&filename);
     let state_path = entry
         .request
         .dest_dir
@@ -736,13 +751,10 @@ fn get_entry_progress(entry: &QueueEntry) -> DownloadProgress {
         if total_bytes > 0 {
             progress_fraction = bytes_downloaded as f64 / total_bytes as f64;
         }
-    } else {
-        let path = entry.request.dest_dir.join(&filename);
-        if let Ok(metadata) = std::fs::metadata(&path) {
-            bytes_downloaded = metadata.len();
-            total_bytes = metadata.len();
-            progress_fraction = 1.0;
-        }
+    } else if let Ok(metadata) = std::fs::metadata(&dest_file_path) {
+        bytes_downloaded = metadata.len();
+        total_bytes = metadata.len();
+        progress_fraction = 1.0;
     }
 
     DownloadProgress {
@@ -756,7 +768,7 @@ fn get_entry_progress(entry: &QueueEntry) -> DownloadProgress {
         progress_fraction,
         chunk_fractions: Vec::new(),
         filename,
-        dest_path: entry.request.dest_dir.to_string_lossy().into_owned(),
+        dest_path: dest_file_path.to_string_lossy().into_owned(),
         error: None,
         segments: Vec::new(),
         resume_supported: true,
