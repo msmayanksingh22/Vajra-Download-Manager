@@ -1,0 +1,551 @@
+<Window x:Class="Vajra.Windows.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:converters="clr-namespace:Vajra.Windows.Converters"
+        xmlns:models="clr-namespace:Vajra.Windows.Models"
+        mc:Ignorable="d"
+        Title="Vajra Download Manager"
+        Height="600" Width="960"
+        MinHeight="450" MinWidth="750"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI"
+        FontSize="12"
+        Background="#FFFFFF"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <converters:StatusToForegroundConverter x:Key="StatusFgConv"/>
+        <converters:StatusToBackgroundConverter x:Key="StatusBgConv"/>
+        <converters:ConnectionStateToBrushConverter x:Key="ConnBrushConv"/>
+        <converters:BooleanToVisibilityInvertedConverter x:Key="BoolToVisInverted"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- High Density DataGrid Row Style -->
+        <Style TargetType="DataGridRow">
+            <Setter Property="Height" Value="48"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="#F1F5F9"/>
+            <EventSetter Event="PreviewMouseRightButtonDown" Handler="OnRowPreviewMouseRightButtonDown"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#F8FAFC"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#F0F7FF"/>
+                    <Setter Property="BorderBrush" Value="#BAE6FD"/>
+                    <Setter Property="Foreground" Value="#0F172A"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Compact DataGrid Cell Style -->
+        <Style TargetType="DataGridCell">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8,2"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridCell">
+                        <Border Background="{TemplateBinding Background}" BorderThickness="0" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="Foreground" Value="#0F172A"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Modern Header Style -->
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Background" Value="#F8FAFC"/>
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="SeparatorVisibility" Value="Hidden"/>
+        </Style>
+
+        <!-- Primary Toolbar Button Style -->
+        <Style x:Key="PrimaryToolbarButton" TargetType="Button">
+            <Setter Property="Background" Value="#0067C0"/>
+            <Setter Property="BorderBrush" Value="#005FB8"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#005FB8"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#0051A2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.45"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Secondary Toolbar Button Style -->
+        <Style x:Key="SecondaryToolbarButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#334155"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#F1F5F9"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#CBD5E1"/>
+                                <Setter Property="Foreground" Value="#0F172A"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#E2E8F0"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.4"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- Taskbar Progress Integration -->
+    <Window.TaskbarItemInfo>
+        <TaskbarItemInfo ProgressState="{Binding TaskbarState}" ProgressValue="{Binding OverallProgress}"/>
+    </Window.TaskbarItemInfo>
+
+    <!-- Window-Level Keyboard Shortcuts (Enter removed to prevent intercepting search box) -->
+    <Window.InputBindings>
+        <KeyBinding Key="N" Modifiers="Ctrl" Command="{Binding AddUrlCommand}"/>
+        <KeyBinding Key="Delete" Command="{Binding DeleteCommand}"/>
+        <KeyBinding Key="F5" Command="{Binding RefreshCommand}"/>
+    </Window.InputBindings>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Coherent Toolbar -->
+            <RowDefinition Height="Auto"/> <!-- Reconnecting / Warning Banner -->
+            <RowDefinition Height="*"/>    <!-- Primary Download Area (Table / Empty State) -->
+            <RowDefinition Height="28"/>   <!-- Refined Status Bar -->
+        </Grid.RowDefinitions>
+
+        <!-- Top Utility Toolbar with grouped control surfaces -->
+        <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="8,6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Left: Action Groups with Visual Separation -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Primary Action -->
+                    <Button Style="{StaticResource PrimaryToolbarButton}" Command="{Binding AddUrlCommand}" 
+                            Margin="0,0,8,0" ToolTip="Add new download (Ctrl+N)">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Data="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" Fill="#FFFFFF" Width="10" Height="10" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Add URL" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Rectangle Width="1" Height="16" Fill="#E2E8F0" Margin="0,0,8,0"/>
+
+                    <!-- Transfer Controls Group -->
+                    <Button Style="{StaticResource SecondaryToolbarButton}" Command="{Binding ResumeCommand}" 
+                            Margin="0,0,4,0" ToolTip="Resume selected download">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Data="M8 5v14l11-7z" Fill="#16A34A" Width="8" Height="9" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Resume" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource SecondaryToolbarButton}" Command="{Binding PauseCommand}" 
+                            Margin="0,0,4,0" ToolTip="Pause selected download">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Data="M6 19h4V5H6v14zm8-14v14h4V5h-4z" Fill="#D97706" Width="9" Height="9" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Pause" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource SecondaryToolbarButton}" Command="{Binding DeleteCommand}" 
+                            Margin="0,0,8,0" ToolTip="Delete selected download (Del)">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" Fill="#DC2626" Width="9" Height="9" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Delete" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Rectangle Width="1" Height="16" Fill="#E2E8F0" Margin="0,0,8,0"/>
+
+                    <!-- Explorer Operations Group -->
+                    <Button Style="{StaticResource SecondaryToolbarButton}" Command="{Binding OpenFileCommand}" 
+                            Margin="0,0,4,0" ToolTip="Open completed file (Enter)">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Data="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z" Fill="#475569" Width="9" Height="9" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Open File" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource SecondaryToolbarButton}" Command="{Binding ShowInFolderCommand}" 
+                            Margin="0,0,8,0" ToolTip="Show in Windows Explorer">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Data="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" Fill="#475569" Width="10" Height="9" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Show in Folder" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Rectangle Width="1" Height="16" Fill="#E2E8F0" Margin="0,0,8,0"/>
+
+                    <!-- Queue Operations Group -->
+                    <Button Style="{StaticResource SecondaryToolbarButton}" Command="{Binding PauseAllCommand}" 
+                            Margin="0,0,4,0" ToolTip="Pause all active downloads">
+                        <TextBlock Text="Pause All" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button Style="{StaticResource SecondaryToolbarButton}" Command="{Binding ResumeAllCommand}" 
+                            Margin="0,0,4,0" ToolTip="Resume all paused downloads">
+                        <TextBlock Text="Resume All" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button Style="{StaticResource SecondaryToolbarButton}" Command="{Binding ClearCompletedCommand}" 
+                            Margin="0,0,8,0" ToolTip="Clear finished downloads from the list">
+                        <TextBlock Text="Clear Completed" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <Rectangle Width="1" Height="16" Fill="#E2E8F0" Margin="0,0,8,0"/>
+
+                    <!-- Utility Group -->
+                    <Button Style="{StaticResource SecondaryToolbarButton}" Command="{Binding RefreshCommand}" 
+                            ToolTip="Reload download list (F5)">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Data="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" Fill="#475569" Width="9" Height="9" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Refresh" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <!-- Center: Multi-selection Pill -->
+                <Border Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0,0,0"
+                        Background="#EFF6FF" BorderBrush="#DBEAFE" BorderThickness="1" CornerRadius="10" Padding="8,2"
+                        Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="{Binding SelectionSummaryText}" FontSize="11" Foreground="#1E40AF" FontWeight="Medium"/>
+                </Border>
+
+                <!-- Right: Integrated Search & Filter Controls -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
+                    <!-- Status Filter Combo -->
+                    <ComboBox SelectedValue="{Binding StatusFilter, Mode=TwoWay}" SelectedValuePath="Content"
+                              AutomationProperties.Name="Filter downloads by status"
+                              Height="28" Width="90" Margin="0,0,6,0" VerticalContentAlignment="Center" FontSize="11"
+                              BorderBrush="#CBD5E1" Background="#FFFFFF" Foreground="#334155">
+                        <ComboBoxItem Content="All" IsSelected="True"/>
+                        <ComboBoxItem Content="Active"/>
+                        <ComboBoxItem Content="Completed"/>
+                        <ComboBoxItem Content="Paused"/>
+                    </ComboBox>
+
+                    <!-- Search Box with Placeholder Watermark and Search Icon -->
+                    <Border Height="28" Background="#FFFFFF" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4" Padding="6,0" VerticalAlignment="Center">
+                        <Grid VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Search Icon -->
+                            <Path Grid.Column="0" Data="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+                                  Fill="#94A3B8" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
+
+                            <!-- Watermark Placeholder -->
+                            <TextBlock Grid.Column="1" Text="Search downloads..." Foreground="#94A3B8" FontSize="11" 
+                                       VerticalAlignment="Center" IsHitTestVisible="False">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=SearchInputBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <!-- Search Input TextBox -->
+                            <TextBox x:Name="SearchInputBox" Grid.Column="1" 
+                                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                     AutomationProperties.Name="Search downloads by filename or URL"
+                                     Background="Transparent" BorderThickness="0" Padding="0" 
+                                     FontSize="11" Foreground="#0F172A" VerticalContentAlignment="Center"
+                                     Width="130" ToolTip="Search downloads by name or URL"/>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Reconnecting / Offline Warning Banner -->
+        <Border Grid.Row="1" Background="#FFFBEB" BorderBrush="#FDE68A" BorderThickness="0,0,0,1" 
+                Padding="10,6" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisInverted}}">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="⚠ " FontWeight="Bold" Foreground="#B45309" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding ConnectionText}" Foreground="#92400E" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
+                <TextBlock Text=" — Downloads remain visible. Retrying connection automatically..." Foreground="#78350F" FontSize="11" Margin="4,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Primary Download Area (Table + Empty State Overlay) -->
+        <Grid Grid.Row="2">
+            <!-- Primary Download Table -->
+            <DataGrid AutomationProperties.Name="Downloads list"
+                      ItemsSource="{Binding DownloadsView}"
+                      SelectedItem="{Binding SelectedDownload, Mode=TwoWay}"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      CanUserResizeRows="False"
+                      CanUserReorderColumns="True"
+                      SelectionMode="Extended"
+                      SelectionUnit="FullRow"
+                      SelectionChanged="OnDataGridSelectionChanged"
+                      IsReadOnly="True"
+                      GridLinesVisibility="Horizontal"
+                      HorizontalGridLinesBrush="#F1F5F9"
+                      VerticalGridLinesBrush="Transparent"
+                      BorderThickness="0"
+                      Background="#FFFFFF"
+                      RowHeaderWidth="0"
+                      MouseDoubleClick="OnRowDoubleClick">
+
+                <!-- DataGrid-Scoped Enter Key Binding (Only triggers OpenFile when focus is on the table) -->
+                <DataGrid.InputBindings>
+                    <KeyBinding Key="Enter" Command="{Binding OpenFileCommand}"/>
+                </DataGrid.InputBindings>
+
+                <!-- Row Context Menu -->
+                <DataGrid.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Resume" Command="{Binding ResumeCommand}"/>
+                        <MenuItem Header="Pause" Command="{Binding PauseCommand}"/>
+                        <MenuItem Header="Retry" Command="{Binding RetryCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="Open File" Command="{Binding OpenFileCommand}" FontWeight="SemiBold"/>
+                        <MenuItem Header="Show in Folder" Command="{Binding ShowInFolderCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="Copy Download URL" Command="{Binding CopyUrlCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="Properties..." Command="{Binding OpenPropertiesCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="Delete..." Command="{Binding DeleteCommand}"/>
+                    </ContextMenu>
+                </DataGrid.ContextMenu>
+
+                <DataGrid.Columns>
+                    <!-- File Name & Understated Extension Badge -->
+                    <DataGridTemplateColumn Header="Name" Width="*" MinWidth="240">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type models:DownloadItem}">
+                                <Grid Margin="4,0" VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Understated Extension Badge -->
+                                    <Border Grid.Column="0" Width="28" Height="20" CornerRadius="3"
+                                            Background="#F1F5F9" BorderBrush="#E2E8F0" BorderThickness="1"
+                                            VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,0,8,0">
+                                        <TextBlock Text="{Binding Extension}" FontSize="9" FontWeight="SemiBold"
+                                                   Foreground="#475569" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+
+                                    <!-- Filename (Strong) and URL (Quiet Secondary) -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Filename}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="#0F172A" TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding Filename}"/>
+                                        <TextBlock Text="{Binding Url}" FontSize="10" Foreground="#64748B"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,1,0,0"
+                                                   ToolTip="{Binding Url}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- Refined Status with Semantic Dot and Friendly Reason -->
+                    <DataGridTemplateColumn Header="Status" Width="120">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type models:DownloadItem}">
+                                <StackPanel VerticalAlignment="Center" Margin="2,0">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <!-- Subtle semantic status dot -->
+                                        <Ellipse Width="7" Height="7" 
+                                                 Fill="{Binding Status, Converter={StaticResource StatusFgConv}}" 
+                                                 Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding StatusText}" FontWeight="Medium" FontSize="11"
+                                                   Foreground="#1E293B" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <!-- Compact friendly error with full details in tooltip -->
+                                    <TextBlock Text="{Binding FriendlyError}" FontSize="10" Foreground="#DC2626"
+                                               TextTrimming="CharacterEllipsis" Margin="13,2,0,0"
+                                               ToolTip="{Binding ErrorToolTip}"
+                                               Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- Progress Column: Slim Bar + Clear Metrics -->
+                    <DataGridTemplateColumn Header="Progress" Width="180">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type models:DownloadItem}">
+                                <Grid VerticalAlignment="Center" Margin="2,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Slim Progress Bar -->
+                                    <ProgressBar Grid.Row="0" Height="4" Maximum="100" Value="{Binding ProgressPct}"
+                                                 Background="#E2E8F0" Foreground="{Binding Status, Converter={StaticResource StatusFgConv}}"
+                                                 BorderThickness="0" Margin="0,0,0,3"/>
+
+                                    <!-- Progress Text -->
+                                    <TextBlock Grid.Row="1" Text="{Binding ProgressText}" FontSize="10" Foreground="#475569"/>
+                                </Grid>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- Transfer Speed -->
+                    <DataGridTextColumn Header="Speed" Binding="{Binding SpeedFormatted}" Width="95">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="FontWeight" Value="Medium"/>
+                                <Setter Property="FontSize" Value="11"/>
+                                <Setter Property="Foreground" Value="#0284C7"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- ETA -->
+                    <DataGridTextColumn Header="ETA" Binding="{Binding EtaFormatted}" Width="85">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="FontSize" Value="11"/>
+                                <Setter Property="Foreground" Value="#475569"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- Date Added -->
+                    <DataGridTextColumn Header="Added" Binding="{Binding CreatedAt, StringFormat={}{0:MM/dd HH:mm}}" Width="95">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="FontSize" Value="10"/>
+                                <Setter Property="Foreground" Value="#64748B"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- Refined, Restrained Empty State -->
+            <Border Background="#FFFFFF"
+                    Visibility="{Binding HasDownloads, Converter={StaticResource BoolToVisInverted}}"
+                    IsHitTestVisible="True"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+                    <!-- Subtle Tray Vector Icon -->
+                    <Path Data="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z" 
+                          Fill="#94A3B8" Width="36" Height="36" Stretch="Uniform" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                    <TextBlock Text="No downloads yet" FontSize="14" FontWeight="SemiBold" Foreground="#334155" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Add a URL to get started" FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,3,0,14"/>
+                    <Button Style="{StaticResource PrimaryToolbarButton}" Command="{Binding AddUrlCommand}" 
+                            HorizontalAlignment="Center" Height="28" Padding="14,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Data="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" Fill="#FFFFFF" Width="10" Height="10" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Add URL" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Status Bar: Intentional Application Footer -->
+        <Border Grid.Row="3" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="12,0">
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Left: Connection Status Indicator & Compact Action Message -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Width="7" Height="7" Fill="{Binding ConnectionState, Converter={StaticResource ConnBrushConv}}" Margin="0,0,6,0"/>
+                    <TextBlock Text="{Binding ConnectionText}" FontSize="11" Foreground="#475569" FontWeight="Medium"/>
+                    <TextBlock Text="{Binding ActionStatusMessage}" FontSize="11" Foreground="#0369A1" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Center: Speed and Active Stats -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="Speed: " FontSize="11" Foreground="#64748B"/>
+                    <TextBlock Text="{Binding TotalSpeedFormatted}" FontSize="11" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,0,12,0"/>
+
+                    <Rectangle Width="1" Height="10" Fill="#CBD5E1" Margin="0,0,12,0" VerticalAlignment="Center"/>
+
+                    <TextBlock Text="Active: " FontSize="11" Foreground="#64748B"/>
+                    <TextBlock Text="{Binding ActiveCount}" FontSize="11" FontWeight="SemiBold" Foreground="#0F172A"/>
+                </StackPanel>
+
+                <!-- Right: Item Count -->
+                <TextBlock Grid.Column="2" Text="{Binding ItemCountText}" FontSize="11" Foreground="#64748B" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

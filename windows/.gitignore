@@ -1,0 +1,8 @@
+## .NET / C# build outputs
+bin/
+obj/
+*.user
+*.userosscache
+*.suo
+.vs/
+TestResults/

@@ -1,0 +1,300 @@
+<Window x:Class="Vajra.Windows.Views.PropertiesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:converters="clr-namespace:Vajra.Windows.Converters"
+        xmlns:vm="clr-namespace:Vajra.Windows.ViewModels"
+        xmlns:models="clr-namespace:Vajra.Windows.Models"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:PropertiesViewModel}"
+        Title="{Binding Title}"
+        Width="560" Height="470"
+        MinWidth="480" MinHeight="400"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="#FFFFFF"
+        FontFamily="Segoe UI"
+        FontSize="12"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <converters:StatusToForegroundConverter x:Key="StatusFgConv"/>
+        <converters:StatusToBackgroundConverter x:Key="StatusBgConv"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <Style x:Key="PropLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#64748B"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,12,3"/>
+        </Style>
+
+        <Style x:Key="PropValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#0F172A"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,3,0,3"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+
+        <Style x:Key="ReadOnlyField" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="Background" Value="#F8FAFC"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#1E293B"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,2,0,4"/>
+        </Style>
+
+        <Style x:Key="HashField" TargetType="TextBox" BasedOn="{StaticResource ReadOnlyField}">
+            <Setter Property="FontFamily" Value="Consolas, Courier New"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#334155"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16,14,16,14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Header -->
+            <RowDefinition Height="*"/>    <!-- Tabs -->
+            <RowDefinition Height="Auto"/> <!-- Footer Actions -->
+        </Grid.RowDefinitions>
+
+        <!-- Top Summary Header -->
+        <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="12,10" Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Extension Badge -->
+                <Border Grid.Column="0" Width="32" Height="26" CornerRadius="3" Background="#FFFFFF" BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,10,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Item.Extension}" FontSize="10" FontWeight="SemiBold" Foreground="#475569" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Filename + Progress Summary -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Filename}" FontWeight="SemiBold" FontSize="13" Foreground="#0F172A" TextTrimming="CharacterEllipsis" ToolTip="{Binding Filename}"/>
+                    <TextBlock Text="{Binding ProgressSummaryText}" FontSize="11" Foreground="#64748B" Margin="0,2,0,0"/>
+                </StackPanel>
+
+                <!-- Status Badge -->
+                <Border Grid.Column="2" CornerRadius="3" Background="{Binding Status, Converter={StaticResource StatusBgConv}}" Padding="8,4" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" FontSize="11" Foreground="{Binding Status, Converter={StaticResource StatusFgConv}}"/>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Tabbed Diagnostic Surfaces -->
+        <TabControl Grid.Row="1" Background="#FFFFFF" BorderBrush="#CBD5E1" Padding="12">
+            <!-- Tab 1: General -->
+            <TabItem Header="General" FontSize="11" FontWeight="Medium">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,6,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="URL:" Style="{StaticResource PropLabel}"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Url, Mode=OneWay}" Style="{StaticResource ReadOnlyField}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Save Location:" Style="{StaticResource PropLabel}"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding OutputPath, Mode=OneWay}" Style="{StaticResource ReadOnlyField}"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="File Size:" Style="{StaticResource PropLabel}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding FileSizeFormatted}" Style="{StaticResource PropValue}"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Downloaded:" Style="{StaticResource PropLabel}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DownloadedFormatted}" Style="{StaticResource PropValue}"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Added:" Style="{StaticResource PropLabel}"/>
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding CreatedAtFormatted}" Style="{StaticResource PropValue}"/>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Completed:" Style="{StaticResource PropLabel}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding CompletedAtFormatted}" Style="{StaticResource PropValue}"/>
+
+                        <!-- Error section if failed -->
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Error:" Style="{StaticResource PropLabel}"
+                                   Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}"/>
+                        <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding ErrorMessage, Mode=OneWay}" 
+                                 Style="{StaticResource ReadOnlyField}" Foreground="#DC2626" TextWrapping="Wrap" MaxHeight="60"
+                                 Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}"/>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Tab 2: Transfer Information -->
+            <TabItem Header="Transfer" FontSize="11" FontWeight="Medium">
+                <Grid Margin="4,8,4,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="130"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Current Speed:" Style="{StaticResource PropLabel}"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CurrentSpeedFormatted}" Style="{StaticResource PropValue}" FontWeight="SemiBold" Foreground="#0284C7"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Estimated Time (ETA):" Style="{StaticResource PropLabel}"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding EtaFormatted}" Style="{StaticResource PropValue}"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Active Connections:" Style="{StaticResource PropLabel}"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ActiveConnectionsText}" Style="{StaticResource PropValue}"/>
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Resumable (Range):" Style="{StaticResource PropLabel}"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ResumableText}" Style="{StaticResource PropValue}"/>
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Progress:" Style="{StaticResource PropLabel}" Margin="0,10,12,3"/>
+                    <Grid Grid.Row="4" Grid.Column="1" Margin="0,10,0,3">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <ProgressBar Grid.Row="0" Height="6" Maximum="100" Value="{Binding Item.ProgressPct}" Background="#E2E8F0" Foreground="#0067C0" BorderThickness="0" Margin="0,0,0,4"/>
+                        <TextBlock Grid.Row="1" Text="{Binding ProgressSummaryText}" FontSize="11" Foreground="#64748B"/>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <!-- Tab 3: Integrity -->
+            <TabItem Header="Integrity" FontSize="11" FontWeight="Medium">
+                <Grid Margin="4,8,4,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Algorithm:" Style="{StaticResource PropLabel}"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding HashAlgorithmText}" Style="{StaticResource PropValue}" FontWeight="SemiBold"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Expected Hash:" Style="{StaticResource PropLabel}"/>
+                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ExpectedHashText, Mode=OneWay}" Style="{StaticResource HashField}"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Computed Hash:" Style="{StaticResource PropLabel}"/>
+                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ActualHashText, Mode=OneWay}" Style="{StaticResource HashField}"/>
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Verification Result:" Style="{StaticResource PropLabel}"/>
+                    <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,0,4">
+                        <Border CornerRadius="3" Padding="8,3" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1">
+                            <TextBlock Text="{Binding HashStatusText}" FontWeight="SemiBold" FontSize="11" Foreground="#334155"/>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- Tab 4: Segments -->
+            <TabItem Header="Segments" FontSize="11" FontWeight="Medium">
+                <Grid Margin="0,4,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Summary line -->
+                    <TextBlock Grid.Row="0" Text="{Binding SegmentsSummaryText}" FontSize="11" Foreground="#64748B" Margin="2,0,0,6"/>
+
+                    <!-- Segment Table -->
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding Segments}" AutoGenerateColumns="False" CanUserAddRows="False"
+                              CanUserDeleteRows="False" CanUserResizeRows="False" IsReadOnly="True" GridLinesVisibility="Horizontal"
+                              HorizontalGridLinesBrush="#F1F5F9" VerticalGridLinesBrush="Transparent" BorderThickness="1"
+                              BorderBrush="#E2E8F0" Background="#FFFFFF" RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="35">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="HorizontalAlignment" Value="Center"/>
+                                        <Setter Property="FontSize" Value="11"/>
+                                        <Setter Property="Foreground" Value="#64748B"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="Byte Range" Binding="{Binding RangeFormatted}" Width="*">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="FontSize" Value="11"/>
+                                        <Setter Property="Foreground" Value="#1E293B"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTemplateColumn Header="Progress" Width="140">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type models:SegmentModel}">
+                                        <Grid VerticalAlignment="Center" Margin="2,0">
+                                            <ProgressBar Height="4" Maximum="100" Value="{Binding ProgressPct}"
+                                                         Background="#E2E8F0" Foreground="#0067C0" BorderThickness="0" Margin="0,0,0,2"/>
+                                            <TextBlock Text="{Binding ProgressFormatted}" FontSize="10" Foreground="#475569" Margin="0,6,0,0"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="FontSize" Value="11"/>
+                                        <Setter Property="FontWeight" Value="Medium"/>
+                                        <Setter Property="Foreground" Value="#334155"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Bottom Footer -->
+        <Grid Grid.Row="2" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0" Content="Refresh (F5)" Click="OnRefreshClick"
+                    Height="28" Padding="12,0" Background="#F8FAFC" BorderBrush="#CBD5E1" BorderThickness="1"
+                    Foreground="#334155" FontSize="11" Cursor="Hand"/>
+
+            <Button Grid.Column="2" Content="Close" Click="OnCloseClick" IsCancel="True"
+                    Height="28" Padding="18,0" Background="#0067C0" BorderBrush="#005FB8" BorderThickness="1"
+                    Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="11" Cursor="Hand"/>
+        </Grid>
+    </Grid>
+</Window>

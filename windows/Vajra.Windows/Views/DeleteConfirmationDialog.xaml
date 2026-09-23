@@ -1,0 +1,81 @@
+<Window x:Class="Vajra.Windows.Views.DeleteConfirmationDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Remove Download"
+        Width="490" Height="220"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="#FFFFFF"
+        FontFamily="Segoe UI"
+        FontSize="12"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <Style x:Key="DialogButton" TargetType="Button">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="14,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Title / Icon -->
+            <RowDefinition Height="Auto"/> <!-- Filename Box -->
+            <RowDefinition Height="*"/>    <!-- Subtext -->
+            <RowDefinition Height="Auto"/> <!-- Action Buttons -->
+        </Grid.RowDefinitions>
+
+        <!-- Title Header -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,10">
+            <Border Width="26" Height="26" CornerRadius="13" Background="#FEF2F2" BorderBrush="#FEE2E2" BorderThickness="1" Margin="0,0,10,0">
+                <!-- Warning / Trash icon -->
+                <Path Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" 
+                      Fill="#DC2626" Width="13" Height="13" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <TextBlock x:Name="DialogTitleText" Text="Remove download from list?" FontWeight="SemiBold" FontSize="14" Foreground="#111827" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Filename Box -->
+        <Border Grid.Row="1" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="10,6" Margin="0,0,0,8">
+            <TextBlock x:Name="FilenameText" FontWeight="Medium" FontSize="12" Foreground="#1E293B" TextTrimming="CharacterEllipsis"/>
+        </Border>
+
+        <!-- Informational subtext -->
+        <TextBlock Grid.Row="2" Text="Choose whether to remove the download entry only, or also delete the downloaded file from your disk." 
+                   Foreground="#64748B" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+        <!-- Action Buttons -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Keep File" Style="{StaticResource DialogButton}" 
+                    Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1" Foreground="#334155" FontWeight="Medium"
+                    Click="OnKeepFileClick" Margin="0,0,8,0" ToolTip="Remove from list only; file on disk remains intact"/>
+
+            <Button Content="Delete File" Style="{StaticResource DialogButton}" 
+                    Background="#DC2626" BorderBrush="#B91C1C" BorderThickness="1" Foreground="#FFFFFF" FontWeight="SemiBold"
+                    Click="OnDeleteFileClick" Margin="0,0,8,0" ToolTip="Remove from list and permanently delete file from disk"/>
+
+            <Button Content="Cancel" Style="{StaticResource DialogButton}" IsCancel="True"
+                    Background="#FFFFFF" BorderBrush="#D1D5DB" BorderThickness="1" Foreground="#4B5563"
+                    Click="OnCancelClick"/>
+        </StackPanel>
+    </Grid>
+</Window>

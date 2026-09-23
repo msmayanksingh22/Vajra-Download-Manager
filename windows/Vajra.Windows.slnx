@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Vajra.Windows.Tests/Vajra.Windows.Tests.csproj" />
+  <Project Path="Vajra.Windows/Vajra.Windows.csproj" />
+</Solution>
