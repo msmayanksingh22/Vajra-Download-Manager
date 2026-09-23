@@ -21,6 +21,7 @@ pub async fn build(state: Arc<AppState>) -> Router {
         // Downloads
         .route("/downloads", post(handlers::add_download))
         .route("/downloads", get(handlers::list_downloads))
+        .route("/downloads/bulk-action", post(handlers::bulk_action))
         .route("/downloads/:id", get(handlers::get_download))
         .route("/downloads/:id", patch(handlers::patch_download))
         .route("/downloads/:id", delete(handlers::delete_download))

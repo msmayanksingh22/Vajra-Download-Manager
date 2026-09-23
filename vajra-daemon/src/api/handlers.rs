@@ -18,8 +18,9 @@ use tokio_stream::wrappers::BroadcastStream;
 use uuid::Uuid;
 use vajra_engine::download_task::DownloadRequest;
 use vajra_protocol::{
-    AddDownloadRequest, AddDownloadResponse, DownloadAction, DownloadInfo, DownloadList,
-    InspectRequest, InspectResponse, PatchDownloadRequest, StatsResponse,
+    AddDownloadRequest, AddDownloadResponse, BulkAction, BulkActionFailure, BulkActionRequest,
+    BulkActionResponse, DownloadAction, DownloadInfo, DownloadList, InspectRequest,
+    InspectResponse, PatchDownloadRequest, StatsResponse,
 };
 
 use crate::{
@@ -586,49 +587,36 @@ pub struct DeleteParams {
     pub delete_file: bool,
 }
 
-#[utoipa::path(delete, path = "/api/v1/downloads/{id}", responses((status = 200, description = "Download deleted")))]
-pub async fn delete_download(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<Uuid>,
-    Query(params): Query<DeleteParams>,
-) -> Result<impl IntoResponse> {
+pub(crate) async fn delete_download_internal(
+    state: &AppState,
+    id: Uuid,
+    delete_file: bool,
+) -> Result<()> {
     let progress = state.manager.progress(id).await;
 
-    // Determine paths to delete before removing from database/manager
+    // Check existence across manager and database
     let mut file_path_to_delete = None;
     let mut state_path_to_delete = None;
+    let mut exists_in_db = false;
 
-    if params.delete_file {
-        if let Some(p) = &progress {
-            if !p.dest_path.is_empty() {
-                let file_path = std::path::PathBuf::from(&p.dest_path);
+    {
+        let db = state.database.lock().await;
+        if let Ok(Some(hist)) = db.get_history_entry(&id.to_string()) {
+            exists_in_db = true;
+            if delete_file && !hist.dest_path.is_empty() {
+                let file_path = std::path::PathBuf::from(&hist.dest_path);
                 file_path_to_delete = Some(file_path);
-                let filename = std::path::Path::new(&p.dest_path)
+                let filename = std::path::Path::new(&hist.dest_path)
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("");
-                if let Some(parent) = std::path::Path::new(&p.dest_path).parent() {
+                if let Some(parent) = std::path::Path::new(&hist.dest_path).parent() {
                     state_path_to_delete = Some(parent.join(format!(".{}.vajra.state", filename)));
                 }
             }
-        }
-
-        if file_path_to_delete.is_none() {
-            let db = state.database.lock().await;
-            if let Ok(Some(hist)) = db.get_history_entry(&id.to_string()) {
-                if !hist.dest_path.is_empty() {
-                    let file_path = std::path::PathBuf::from(&hist.dest_path);
-                    file_path_to_delete = Some(file_path);
-                    let filename = std::path::Path::new(&hist.dest_path)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("");
-                    if let Some(parent) = std::path::Path::new(&hist.dest_path).parent() {
-                        state_path_to_delete =
-                            Some(parent.join(format!(".{}.vajra.state", filename)));
-                    }
-                }
-            } else if let Ok(Some(job)) = db.get_job(&id.to_string()) {
+        } else if let Ok(Some(job)) = db.get_job(&id.to_string()) {
+            exists_in_db = true;
+            if delete_file {
                 if let Ok(request) = serde_json::from_str::<
                     vajra_engine::download_task::DownloadRequest,
                 >(&job.request_json)
@@ -656,48 +644,360 @@ pub async fn delete_download(
         }
     }
 
+    if progress.is_none() && !exists_in_db {
+        return Err(DaemonError::NotFound(id));
+    }
+
+    if delete_file && file_path_to_delete.is_none() {
+        if let Some(p) = &progress {
+            if !p.dest_path.is_empty() {
+                let file_path = std::path::PathBuf::from(&p.dest_path);
+                file_path_to_delete = Some(file_path);
+                let filename = std::path::Path::new(&p.dest_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                if let Some(parent) = std::path::Path::new(&p.dest_path).parent() {
+                    state_path_to_delete = Some(parent.join(format!(".{}.vajra.state", filename)));
+                }
+            }
+        }
+    }
+
+    // 1. Cancel active task first to release any open file handles
     state.manager.cancel(id).await;
+
+    // 2. Physical file deletion with bounded retry:
+    // If deletion fails with an I/O error, report it before mutating database records!
+    if delete_file {
+        if let Some(path) = file_path_to_delete {
+            if path.exists() {
+                let mut last_err = None;
+                for _ in 0..2 {
+                    let result = if path.is_dir() {
+                        std::fs::remove_dir_all(&path)
+                    } else {
+                        std::fs::remove_file(&path)
+                    };
+                    match result {
+                        Ok(()) => {
+                            last_err = None;
+                            break;
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            last_err = None;
+                            break;
+                        }
+                        Err(e) => {
+                            last_err = Some(e);
+                            tokio::time::sleep(tokio::time::Duration::from_millis(25)).await;
+                        }
+                    }
+                }
+                if let Some(e) = last_err {
+                    return Err(DaemonError::Io(e));
+                }
+            }
+        }
+        if let Some(path) = state_path_to_delete {
+            if path.exists() {
+                let _ = if path.is_dir() {
+                    std::fs::remove_dir_all(&path)
+                } else {
+                    std::fs::remove_file(&path)
+                };
+            }
+        }
+    }
+
+    // 3. Delete records from database after successful file cleanup (or if file deletion was not requested)
     {
         let db = state.database.lock().await;
         let _ = db.delete_job(&id.to_string());
         let _ = db.delete_history_entry(&id.to_string());
     }
 
-    if params.delete_file {
-        if let Some(path) = file_path_to_delete {
-            if path.exists() {
-                for _ in 0..30 {
-                    let result = if path.is_dir() {
-                        std::fs::remove_dir_all(&path)
-                    } else {
-                        std::fs::remove_file(&path)
-                    };
-                    if result.is_ok() {
-                        break;
+    state.sse.send(vajra_protocol::DaemonEvent::Removed { id });
+    Ok(())
+}
+
+pub(crate) async fn clear_completed_internal(
+    state: &AppState,
+    id: Uuid,
+) -> std::result::Result<(), (String, String)> {
+    let progress = state.manager.progress(id).await;
+    let Some(p) = progress else {
+        return Err(("not_found".to_string(), "Download not found".to_string()));
+    };
+
+    if p.state != vajra_engine::download_task::TaskState::Completed {
+        return Err((
+            "invalid_state".to_string(),
+            format!(
+                "Download cannot be cleared because it is in {:?} state",
+                p.state
+            ),
+        ));
+    }
+
+    // Remove from active manager memory
+    state.manager.cancel(id).await;
+
+    // Remove from active jobs DB table, but STRICTLY PRESERVE history DB table!
+    {
+        let db = state.database.lock().await;
+        let _ = db.delete_job(&id.to_string());
+    }
+
+    state.sse.send(vajra_protocol::DaemonEvent::Removed { id });
+    Ok(())
+}
+
+#[utoipa::path(delete, path = "/api/v1/downloads/{id}", responses((status = 200, description = "Download deleted")))]
+pub async fn delete_download(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Query(params): Query<DeleteParams>,
+) -> Result<impl IntoResponse> {
+    delete_download_internal(&state, id, params.delete_file).await?;
+    Ok(Json(serde_json::json!({ "id": id, "ok": true })))
+}
+
+fn record_delete_result(
+    id: Uuid,
+    res: Result<()>,
+    succeeded: &mut Vec<Uuid>,
+    failed: &mut Vec<BulkActionFailure>,
+) {
+    match res {
+        Ok(()) => succeeded.push(id),
+        Err(DaemonError::NotFound(_)) => failed.push(BulkActionFailure {
+            id,
+            code: "not_found".into(),
+            message: "Download not found".into(),
+        }),
+        Err(DaemonError::Io(e)) => failed.push(BulkActionFailure {
+            id,
+            code: "io_error".into(),
+            message: e.to_string(),
+        }),
+        Err(e) => failed.push(BulkActionFailure {
+            id,
+            code: "db_error".into(),
+            message: e.to_string(),
+        }),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/downloads/bulk-action",
+    request_body = BulkActionRequest,
+    responses(
+        (status = 200, description = "Bulk action performed (may contain per-item partial failures)", body = BulkActionResponse),
+        (status = 400, description = "Invalid request: batch size >500, contradictory 'all' and 'ids', or empty request"),
+        (status = 401, description = "Unauthorized (missing or invalid bearer token)"),
+        (status = 429, description = "Rate limit exceeded")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn bulk_action(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<BulkActionRequest>,
+) -> Result<Json<BulkActionResponse>> {
+    // 1. Enforce ID limit of 500 on the submitted request BEFORE deduplication
+    if body.ids.len() > 500 {
+        return Err(DaemonError::BadRequest(
+            "Bulk action batch size exceeds maximum limit of 500 items".into(),
+        ));
+    }
+
+    // 2. Reject all=true combined with a non-empty list of IDs
+    if body.all && !body.ids.is_empty() {
+        return Err(DaemonError::BadRequest(
+            "Cannot specify both 'all: true' and a non-empty list of IDs".into(),
+        ));
+    }
+
+    // 3. Reject empty request (neither all: true nor non-empty ids)
+    if !body.all && body.ids.is_empty() {
+        return Err(DaemonError::BadRequest(
+            "Must specify either 'all: true' or a non-empty list of IDs".into(),
+        ));
+    }
+
+    // 4. Deduplicate IDs
+    let mut unique_ids = body.ids.clone();
+    unique_ids.sort();
+    unique_ids.dedup();
+
+    let mut succeeded = Vec::new();
+    let mut failed = Vec::new();
+
+    match body.action {
+        BulkAction::Pause => {
+            if body.all {
+                let all = state.manager.all_progress().await;
+                for p in all {
+                    if let Ok(()) = state.manager.pause_task(p.id).await {
+                        succeeded.push(p.id);
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                }
+            } else {
+                for id in unique_ids {
+                    match state.manager.pause_task(id).await {
+                        Ok(()) => succeeded.push(id),
+                        Err(vajra_engine::QueueActionError::NotFound) => {
+                            failed.push(BulkActionFailure {
+                                id,
+                                code: "not_found".into(),
+                                message: "Download not found".into(),
+                            });
+                        }
+                        Err(vajra_engine::QueueActionError::InvalidState(msg)) => {
+                            failed.push(BulkActionFailure {
+                                id,
+                                code: "invalid_state".into(),
+                                message: msg,
+                            });
+                        }
+                    }
                 }
             }
         }
-        if let Some(path) = state_path_to_delete {
-            if path.exists() {
-                for _ in 0..30 {
-                    let result = if path.is_dir() {
-                        std::fs::remove_dir_all(&path)
-                    } else {
-                        std::fs::remove_file(&path)
-                    };
-                    if result.is_ok() {
-                        break;
+        BulkAction::Resume => {
+            if body.all {
+                let all = state.manager.all_progress().await;
+                for p in all {
+                    if matches!(
+                        p.state,
+                        vajra_engine::download_task::TaskState::Paused
+                            | vajra_engine::download_task::TaskState::Failed
+                            | vajra_engine::download_task::TaskState::Cancelled
+                    ) {
+                        if let Ok(()) = state.manager.resume_task(p.id).await {
+                            succeeded.push(p.id);
+                        }
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
                 }
+            } else {
+                for id in unique_ids {
+                    match state.manager.resume_task(id).await {
+                        Ok(()) => succeeded.push(id),
+                        Err(vajra_engine::QueueActionError::NotFound) => {
+                            failed.push(BulkActionFailure {
+                                id,
+                                code: "not_found".into(),
+                                message: "Download not found".into(),
+                            });
+                        }
+                        Err(vajra_engine::QueueActionError::InvalidState(msg)) => {
+                            failed.push(BulkActionFailure {
+                                id,
+                                code: "invalid_state".into(),
+                                message: msg,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        BulkAction::Retry => {
+            if body.all {
+                let all = state.manager.all_progress().await;
+                for p in all {
+                    if matches!(
+                        p.state,
+                        vajra_engine::download_task::TaskState::Failed
+                            | vajra_engine::download_task::TaskState::Cancelled
+                    ) {
+                        if let Ok(()) = state.manager.retry_task(p.id).await {
+                            succeeded.push(p.id);
+                        }
+                    }
+                }
+            } else {
+                for id in unique_ids {
+                    match state.manager.retry_task(id).await {
+                        Ok(()) => succeeded.push(id),
+                        Err(vajra_engine::QueueActionError::NotFound) => {
+                            failed.push(BulkActionFailure {
+                                id,
+                                code: "not_found".into(),
+                                message: "Download not found".into(),
+                            });
+                        }
+                        Err(vajra_engine::QueueActionError::InvalidState(msg)) => {
+                            failed.push(BulkActionFailure {
+                                id,
+                                code: "invalid_state".into(),
+                                message: msg,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        BulkAction::ClearCompleted => {
+            if body.all {
+                let all = state.manager.all_progress().await;
+                for p in all {
+                    if p.state == vajra_engine::download_task::TaskState::Completed {
+                        if let Ok(()) = clear_completed_internal(&state, p.id).await {
+                            succeeded.push(p.id);
+                        }
+                    }
+                }
+            } else {
+                for id in unique_ids {
+                    match clear_completed_internal(&state, id).await {
+                        Ok(()) => succeeded.push(id),
+                        Err((code, message)) => {
+                            failed.push(BulkActionFailure { id, code, message });
+                        }
+                    }
+                }
+            }
+        }
+        BulkAction::Delete => {
+            let target_ids = if body.all {
+                let all = state.manager.all_progress().await;
+                all.into_iter().map(|p| p.id).collect()
+            } else {
+                unique_ids
+            };
+
+            let state_arc = Arc::clone(&state);
+            let delete_file = body.delete_file;
+            let mut set = tokio::task::JoinSet::new();
+
+            for id in target_ids {
+                let st = Arc::clone(&state_arc);
+                while set.len() >= 16 {
+                    if let Some(Ok((id, res))) = set.join_next().await {
+                        record_delete_result(id, res, &mut succeeded, &mut failed);
+                    }
+                }
+                set.spawn(async move {
+                    let res = delete_download_internal(&st, id, delete_file).await;
+                    (id, res)
+                });
+            }
+
+            while let Some(Ok((id, res))) = set.join_next().await {
+                record_delete_result(id, res, &mut succeeded, &mut failed);
             }
         }
     }
 
-    state.sse.send(vajra_protocol::DaemonEvent::Removed { id });
-    Ok(Json(serde_json::json!({ "id": id, "ok": true })))
+    let total = succeeded.len() + failed.len();
+    Ok(Json(BulkActionResponse {
+        total,
+        succeeded,
+        failed,
+    }))
 }
 
 // ─── GET /api/v1/downloads/:id/events (per-download SSE) ─────────────────────
@@ -1818,4 +2118,487 @@ pub async fn preview_download(
         "ok": true,
         "preview_path": preview_path.to_string_lossy()
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use chrono::Utc;
+    use tokio::sync::{Mutex, RwLock};
+    use vajra_engine::download_task::{DownloadRequest, DownloadTask, TaskState};
+    use vajra_protocol::{BulkAction, BulkActionRequest, Priority, QueueType};
+
+    use super::*;
+
+    async fn create_test_state() -> (Arc<AppState>, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_vajra.db");
+        let database = vajra_engine::db::Database::open(&db_path).unwrap();
+        let manager = vajra_engine::DownloadManager::new(
+            vajra_engine::queue::QueueSettings {
+                max_concurrent: 4,
+                ..Default::default()
+            },
+            0,
+        );
+        let sse = crate::api::sse::SseBroadcaster::new();
+        let speed_tracker = crate::speed_history::SpeedTracker::new(60);
+        let config = vajra_protocol::DaemonConfig::default();
+        let ab_mgr = vajra_engine::ab_test::ExperimentManager::new("test-client".to_string());
+        let ab_test = Arc::new(ab_mgr);
+        let state = Arc::new(AppState {
+            manager,
+            database: Mutex::new(database),
+            config: RwLock::new(config),
+            sse,
+            speed_tracker: speed_tracker.clone(),
+            started_at: std::time::Instant::now(),
+            shutdown_tx: Mutex::new(None),
+            ab_test,
+            inspect_limiter: Mutex::new(Vec::new()),
+            spider_limiter: Mutex::new(Vec::new()),
+            add_download_limiter: Mutex::new(Vec::new()),
+        });
+        (state, temp_dir)
+    }
+
+    fn sample_req(dest_dir: std::path::PathBuf, filename: &str) -> DownloadRequest {
+        DownloadRequest {
+            url: format!("http://example.com/{}", filename),
+            mirrors: vec![],
+            dest_dir,
+            filename: Some(filename.to_string()),
+            timeout_secs: None,
+            connect_timeout_secs: None,
+            max_connections: 1,
+            speed_limit: 0,
+            throttle: None,
+            delete_on_failure: false,
+            queue_type: QueueType::Standard,
+            sync_interval_secs: 3600,
+            referrer: None,
+            cookie_header: None,
+            user_agent: None,
+            authorization: None,
+            proxy: None,
+            proxies: vec![],
+            local_address: None,
+            use_ytdlp: false,
+            ytdlp_format: None,
+            ytdlp_subtitles: false,
+            ytdlp_playlist: false,
+            use_http3: false,
+            expected_hash: None,
+            auto_extract: false,
+            post_processing_script: None,
+            av_scan_path: None,
+            av_scan_args: vec![],
+            schedule_at: None,
+            daemon_config: None,
+            priority: Priority::Normal,
+            tags: vec![],
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bulk_action_validation_rejections() {
+        let (state, _temp) = create_test_state().await;
+
+        // 1. >500 IDs submitted before deduplication MUST be rejected with 400
+        let ids_501: Vec<Uuid> = (0..501).map(|_| Uuid::new_v4()).collect();
+        let res = bulk_action(
+            State(Arc::clone(&state)),
+            Json(BulkActionRequest {
+                ids: ids_501,
+                action: BulkAction::Pause,
+                all: false,
+                delete_file: false,
+            }),
+        )
+        .await;
+        assert!(matches!(res, Err(DaemonError::BadRequest(_))));
+
+        // 2. all: true combined with IDs MUST be rejected with 400
+        let res_all_and_ids = bulk_action(
+            State(Arc::clone(&state)),
+            Json(BulkActionRequest {
+                ids: vec![Uuid::new_v4()],
+                action: BulkAction::Pause,
+                all: true,
+                delete_file: false,
+            }),
+        )
+        .await;
+        assert!(matches!(res_all_and_ids, Err(DaemonError::BadRequest(_))));
+
+        // 3. all: false combined with empty IDs MUST be rejected with 400
+        let res_empty = bulk_action(
+            State(Arc::clone(&state)),
+            Json(BulkActionRequest {
+                ids: vec![],
+                action: BulkAction::Pause,
+                all: false,
+                delete_file: false,
+            }),
+        )
+        .await;
+        assert!(matches!(res_empty, Err(DaemonError::BadRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn test_bulk_action_deduplication() {
+        let (state, _temp) = create_test_state().await;
+        let dup_id = Uuid::new_v4();
+
+        // 3 identical IDs in request
+        let res = bulk_action(
+            State(Arc::clone(&state)),
+            Json(BulkActionRequest {
+                ids: vec![dup_id, dup_id, dup_id],
+                action: BulkAction::Pause,
+                all: false,
+                delete_file: false,
+            }),
+        )
+        .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_clear_completed_removes_active_and_job_preserves_history() {
+        let (state, temp) = create_test_state().await;
+        let id = Uuid::new_v4();
+        let req = sample_req(temp.path().to_path_buf(), "done.bin");
+
+        // 1. Add restored task in Completed state
+        let task = DownloadTask::new_restored(
+            id,
+            req.clone(),
+            TaskState::Completed,
+            1000,
+            1000,
+            "done.bin".into(),
+            temp.path().join("done.bin").to_string_lossy().into_owned(),
+            None,
+        );
+        state.manager.add_restored(id, req.clone(), task).await;
+
+        // 2. Add DB job and DB history entry
+        {
+            let db = state.database.lock().await;
+            db.upsert_job(&vajra_engine::db::JobRecord {
+                id: id.to_string(),
+                request_json: serde_json::to_string(&req).unwrap(),
+                state: "completed".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            })
+            .unwrap();
+
+            db.insert_history(&vajra_engine::db::HistoryEntry {
+                id: id.to_string(),
+                url: req.url.clone(),
+                filename: "done.bin".to_string(),
+                dest_path: temp.path().join("done.bin").to_string_lossy().into_owned(),
+                total_bytes: 1000,
+                speed_avg_bps: 500,
+                status: "completed".to_string(),
+                completed_at: Utc::now(),
+                tags: vec![],
+            })
+            .unwrap();
+        }
+
+        // Verify pre-conditions
+        assert!(state.manager.progress(id).await.is_some());
+        {
+            let db = state.database.lock().await;
+            assert!(db.get_job(&id.to_string()).unwrap().is_some());
+            assert!(db.get_history_entry(&id.to_string()).unwrap().is_some());
+        }
+
+        // 3. Execute clear_completed_internal
+        let res = clear_completed_internal(&state, id).await;
+        assert!(
+            res.is_ok(),
+            "clear_completed on completed download must succeed"
+        );
+
+        // 4. Verify post-conditions:
+        // Absent from active queue
+        assert!(state.manager.progress(id).await.is_none());
+
+        // Absent from SQLite jobs table
+        {
+            let db = state.database.lock().await;
+            assert!(
+                db.get_job(&id.to_string()).unwrap().is_none(),
+                "Job must be removed from active jobs"
+            );
+
+            // STILL PRESENT in SQLite history table (Regression test for constraint 6!)
+            let hist = db.get_history_entry(&id.to_string()).unwrap();
+            assert!(
+                hist.is_some(),
+                "History entry MUST be preserved after clear_completed"
+            );
+            assert_eq!(hist.unwrap().id, id.to_string());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_clear_completed_rejects_active_downloads() {
+        let (state, temp) = create_test_state().await;
+        let id = Uuid::new_v4();
+        let req = sample_req(temp.path().to_path_buf(), "active.bin");
+
+        // Restored in Paused state (not Completed)
+        let task = DownloadTask::new_restored(
+            id,
+            req.clone(),
+            TaskState::Paused,
+            100,
+            1000,
+            "active.bin".into(),
+            temp.path()
+                .join("active.bin")
+                .to_string_lossy()
+                .into_owned(),
+            None,
+        );
+        state.manager.add_restored(id, req.clone(), task).await;
+
+        let res = clear_completed_internal(&state, id).await;
+        assert!(res.is_err());
+        let (code, _) = res.unwrap_err();
+        assert_eq!(code, "invalid_state");
+
+        // Remains in active queue
+        assert!(state.manager.progress(id).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_bulk_delete_with_simulated_filesystem_failure() {
+        let (state, temp) = create_test_state().await;
+        let id = Uuid::new_v4();
+        let file_path = temp.path().join("locked_file.bin");
+        std::fs::write(&file_path, b"test payload for delete").unwrap();
+
+        let req = sample_req(temp.path().to_path_buf(), "locked_file.bin");
+
+        // Add task and DB records
+        let task = DownloadTask::new_restored(
+            id,
+            req.clone(),
+            TaskState::Completed,
+            23,
+            23,
+            "locked_file.bin".into(),
+            file_path.to_string_lossy().into_owned(),
+            None,
+        );
+        state.manager.add_restored(id, req.clone(), task).await;
+
+        {
+            let db = state.database.lock().await;
+            db.upsert_job(&vajra_engine::db::JobRecord {
+                id: id.to_string(),
+                request_json: serde_json::to_string(&req).unwrap(),
+                state: "completed".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            })
+            .unwrap();
+            db.insert_history(&vajra_engine::db::HistoryEntry {
+                id: id.to_string(),
+                url: req.url.clone(),
+                filename: "locked_file.bin".to_string(),
+                dest_path: file_path.to_string_lossy().into_owned(),
+                total_bytes: 23,
+                speed_avg_bps: 100,
+                status: "completed".to_string(),
+                completed_at: Utc::now(),
+                tags: vec![],
+            })
+            .unwrap();
+        }
+
+        // Simulate filesystem failure by exclusively locking the file (share_mode = 0 prevents deletion on Windows)
+        #[cfg(target_os = "windows")]
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let mut opts = std::fs::OpenOptions::new();
+        opts.read(true).write(true);
+        #[cfg(target_os = "windows")]
+        opts.share_mode(0);
+        let _lock = opts.open(&file_path);
+
+        #[cfg(target_os = "windows")]
+        if _lock.is_ok() {
+            // Attempt deletion with delete_file: true
+            let res = delete_download_internal(&state, id, true).await;
+            assert!(
+                matches!(res, Err(DaemonError::Io(_))),
+                "Locked file deletion must return DaemonError::Io"
+            );
+
+            // DB records MUST NOT be deleted when I/O error occurred!
+            let db = state.database.lock().await;
+            assert!(
+                db.get_job(&id.to_string()).unwrap().is_some(),
+                "Job record must NOT be deleted on filesystem error"
+            );
+            assert!(
+                db.get_history_entry(&id.to_string()).unwrap().is_some(),
+                "History entry must NOT be deleted on filesystem error"
+            );
+        }
+
+        // Drop the lock
+        drop(_lock);
+
+        // Now deletion should succeed
+        let ok_res = delete_download_internal(&state, id, true).await;
+        assert!(ok_res.is_ok(), "Deletion must succeed once lock is dropped");
+        assert!(!file_path.exists(), "Physical file must be deleted");
+
+        // DB records should now be removed
+        let db = state.database.lock().await;
+        assert!(db.get_job(&id.to_string()).unwrap().is_none());
+        assert!(db.get_history_entry(&id.to_string()).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_bulk_handler_emits_no_fake_state_change_events() {
+        let (state, temp) = create_test_state().await;
+        let mut sse_rx = state.sse.subscribe();
+
+        let id = Uuid::new_v4();
+        let req = sample_req(temp.path().to_path_buf(), "test.bin");
+        state.manager.add_with_id(id, req).await;
+
+        // Call bulk pause
+        let _ = bulk_action(
+            State(Arc::clone(&state)),
+            Json(BulkActionRequest {
+                ids: vec![id],
+                action: BulkAction::Pause,
+                all: false,
+                delete_file: false,
+            }),
+        )
+        .await;
+
+        // Drain any SSE events currently in queue and ensure NO fake StateChange was dispatched by bulk_action
+        let mut manufactured_state_change = false;
+        while let Ok(event) = sse_rx.try_recv() {
+            if matches!(*event, vajra_protocol::DaemonEvent::StateChange { .. }) {
+                manufactured_state_change = true;
+            }
+        }
+        assert!(
+            !manufactured_state_change,
+            "bulk_action MUST NOT manufacture artificial StateChange SSE events"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bulk_action_retry_state_matrix() {
+        let (state, temp) = create_test_state().await;
+        let id_failed = Uuid::new_v4();
+        let id_cancelled = Uuid::new_v4();
+        let id_completed = Uuid::new_v4();
+        let id_active = Uuid::new_v4();
+
+        let req = sample_req(temp.path().to_path_buf(), "test.bin");
+
+        // 1. Add tasks in various states
+        state
+            .manager
+            .add_restored(
+                id_failed,
+                req.clone(),
+                DownloadTask::new_restored(
+                    id_failed,
+                    req.clone(),
+                    TaskState::Failed,
+                    0,
+                    100,
+                    "f.bin".into(),
+                    "/tmp/f.bin".into(),
+                    Some("err".into()),
+                ),
+            )
+            .await;
+
+        state
+            .manager
+            .add_restored(
+                id_cancelled,
+                req.clone(),
+                DownloadTask::new_restored(
+                    id_cancelled,
+                    req.clone(),
+                    TaskState::Cancelled,
+                    0,
+                    100,
+                    "c.bin".into(),
+                    "/tmp/c.bin".into(),
+                    None,
+                ),
+            )
+            .await;
+
+        state
+            .manager
+            .add_restored(
+                id_completed,
+                req.clone(),
+                DownloadTask::new_restored(
+                    id_completed,
+                    req.clone(),
+                    TaskState::Completed,
+                    100,
+                    100,
+                    "comp.bin".into(),
+                    "/tmp/comp.bin".into(),
+                    None,
+                ),
+            )
+            .await;
+
+        state.manager.add_with_id(id_active, req.clone()).await;
+
+        // 2. Bulk retry with all 4 IDs
+        let res = bulk_action(
+            State(Arc::clone(&state)),
+            Json(BulkActionRequest {
+                ids: vec![id_failed, id_cancelled, id_completed, id_active],
+                action: BulkAction::Retry,
+                all: false,
+                delete_file: false,
+            }),
+        )
+        .await;
+
+        assert!(res.is_ok());
+        let body = res.unwrap();
+        // Failed and Cancelled MUST succeed
+        assert!(body.0.succeeded.contains(&id_failed));
+        assert!(body.0.succeeded.contains(&id_cancelled));
+
+        // Completed and Active MUST fail with invalid_state
+        let failed_map: std::collections::HashMap<Uuid, String> =
+            body.0.failed.into_iter().map(|f| (f.id, f.code)).collect();
+        assert_eq!(
+            failed_map.get(&id_completed).map(|s| s.as_str()),
+            Some("invalid_state")
+        );
+        assert_eq!(
+            failed_map.get(&id_active).map(|s| s.as_str()),
+            Some("invalid_state")
+        );
+    }
 }

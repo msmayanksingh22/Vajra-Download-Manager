@@ -71,6 +71,8 @@ pub enum DaemonError {
     Internal(String),
     #[error("Database error: {0}")]
     Db(#[from] rusqlite::Error),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 impl axum::response::IntoResponse for DaemonError {
@@ -90,6 +92,10 @@ impl axum::response::IntoResponse for DaemonError {
                 "internal_error",
                 msg.clone(),
             ),
+            DaemonError::Io(e) => {
+                tracing::error!("IO error: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "io_error", e.to_string())
+            }
             DaemonError::Db(e) => {
                 tracing::error!("Database error: {e}");
                 (

@@ -116,3 +116,78 @@ async fn test_manager_lifecycle() {
         "Task should be removed from manager"
     );
 }
+
+#[tokio::test]
+async fn test_manager_retry_state_matrix() {
+    use vajra_engine::download_task::{DownloadTask, TaskState};
+
+    let settings = QueueSettings {
+        max_concurrent: 0, // Keep in queued state
+        ..Default::default()
+    };
+    let manager = DownloadManager::new(settings, 0);
+    let id_failed = Uuid::new_v4();
+    let id_completed = Uuid::new_v4();
+    let req = make_req("http://example.com/test", Priority::Normal);
+
+    // Add restored failed task
+    let task_failed = DownloadTask::new_restored(
+        id_failed,
+        req.clone(),
+        TaskState::Failed,
+        100,
+        1000,
+        "failed.bin".into(),
+        "/tmp/failed.bin".into(),
+        Some("Network dropped".into()),
+    );
+    manager
+        .add_restored(id_failed, req.clone(), task_failed)
+        .await;
+
+    // Add restored completed task
+    let task_completed = DownloadTask::new_restored(
+        id_completed,
+        req.clone(),
+        TaskState::Completed,
+        1000,
+        1000,
+        "complete.bin".into(),
+        "/tmp/complete.bin".into(),
+        None,
+    );
+    manager
+        .add_restored(id_completed, req.clone(), task_completed)
+        .await;
+
+    // 1. Retry on Failed MUST succeed
+    let retry_res = manager.retry_task(id_failed).await;
+    assert!(retry_res.is_ok(), "Retry on failed task must succeed");
+
+    // 2. Retry on Completed MUST be rejected with invalid_state
+    let retry_completed_res = manager.retry_task(id_completed).await;
+    assert!(
+        matches!(
+            retry_completed_res,
+            Err(vajra_engine::QueueActionError::InvalidState(_))
+        ),
+        "Retry on completed task must be rejected"
+    );
+
+    // 3. Resume on Completed MUST be rejected
+    let resume_completed_res = manager.resume_task(id_completed).await;
+    assert!(
+        matches!(
+            resume_completed_res,
+            Err(vajra_engine::QueueActionError::InvalidState(_))
+        ),
+        "Resume on completed task must be rejected"
+    );
+
+    // 4. Pause on non-existent task returns NotFound
+    let pause_missing = manager.pause_task(Uuid::new_v4()).await;
+    assert!(
+        matches!(pause_missing, Err(vajra_engine::QueueActionError::NotFound)),
+        "Pause on missing task must return NotFound"
+    );
+}

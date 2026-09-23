@@ -391,10 +391,20 @@ impl DownloadTask {
     }
 
     /// Signal the download to pause (state will flush to disk).
-    pub async fn pause(&self) {
+    /// Returns true if the pause control signal was successfully dispatched.
+    pub async fn pause(&self) -> bool {
         let mut lock = self.control_tx.lock().await;
+        let state = self.progress().state;
+        if matches!(
+            state,
+            TaskState::Completed | TaskState::Failed | TaskState::Cancelled | TaskState::Paused
+        ) {
+            return false;
+        }
         if let Some(tx) = lock.take() {
-            let _ = tx.send(ControlSignal::Pause);
+            tx.send(ControlSignal::Pause).is_ok()
+        } else {
+            false
         }
     }
 

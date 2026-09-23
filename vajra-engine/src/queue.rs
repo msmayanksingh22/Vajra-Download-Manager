@@ -88,6 +88,14 @@ pub struct DownloadManager {
     rules_engine: Arc<crate::rules::RulesEngine>,
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum QueueActionError {
+    #[error("Download not found")]
+    NotFound,
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
+}
+
 impl DownloadManager {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(settings: QueueSettings, global_speed_limit_bps: u64) -> DownloadManagerHandle {
@@ -339,34 +347,87 @@ impl DownloadManager {
 
     /// Pause a specific download by ID.
     pub async fn pause(&self, id: TaskId) {
-        let entries = self.entries.read().await;
-        if let Some(entry) = entries.get(&id) {
+        let _ = self.pause_task(id).await;
+    }
+
+    /// Authoritative pause with state validation and control signal dispatch.
+    pub async fn pause_task(&self, id: TaskId) -> Result<(), QueueActionError> {
+        let maybe_task = {
+            let entries = self.entries.read().await;
+            let entry = entries.get(&id).ok_or(QueueActionError::NotFound)?;
             if let Some(task) = &entry.task {
-                task.pause().await;
+                let state = task.progress().state;
+                if matches!(
+                    state,
+                    TaskState::Completed
+                        | TaskState::Failed
+                        | TaskState::Cancelled
+                        | TaskState::Paused
+                        | TaskState::Pausing
+                ) {
+                    return Err(QueueActionError::InvalidState(format!(
+                        "Download cannot be paused in its current state ({:?})",
+                        state
+                    )));
+                }
+                Some(task.clone())
+            } else {
+                return Err(QueueActionError::InvalidState(
+                    "Download is queued and cannot be paused".into(),
+                ));
             }
+        };
+
+        if let Some(task) = maybe_task {
+            if task.pause().await {
+                Ok(())
+            } else {
+                Err(QueueActionError::InvalidState(
+                    "Download is no longer active".into(),
+                ))
+            }
+        } else {
+            Err(QueueActionError::NotFound)
         }
     }
 
     /// Resume a paused download.
-    ///
-    /// Sends the pause signal to any in-flight task first, then waits for it to
-    /// reach a settled state (`Paused`, `Failed`, or `Cancelled`) before clearing
-    /// `entry.task`.  This prevents `tick()` from creating a second `DownloadTask`
-    /// while the original task is still active — which would cause two writers to
-    /// race on the same pre-allocated file.
     pub async fn resume(&self, id: TaskId) {
-        // Step 1: retrieve and pause the current task (if any) under a read-lock.
+        let _ = self.resume_task(id).await;
+    }
+
+    /// Authoritative resume with state validation.
+    pub async fn resume_task(&self, id: TaskId) -> Result<(), QueueActionError> {
         let maybe_task = {
             let entries = self.entries.read().await;
-            entries.get(&id).and_then(|e| e.task.clone())
+            let entry = entries.get(&id).ok_or(QueueActionError::NotFound)?;
+            if let Some(task) = &entry.task {
+                let state = task.progress().state;
+                if state == TaskState::Completed {
+                    return Err(QueueActionError::InvalidState(
+                        "Cannot resume completed download".into(),
+                    ));
+                }
+                if matches!(
+                    state,
+                    TaskState::Downloading
+                        | TaskState::FetchingMeta
+                        | TaskState::Allocating
+                        | TaskState::SolvingCaptcha
+                        | TaskState::Verifying
+                ) {
+                    return Err(QueueActionError::InvalidState(
+                        "Download is already active".into(),
+                    ));
+                }
+                Some(task.clone())
+            } else {
+                None
+            }
         };
 
         if let Some(task) = maybe_task {
-            // Send the pause signal; this is fast (just sends on a channel).
             task.pause().await;
-
-            // Wait for the task to actually stop. Poll with a short sleep so we
-            // don't busy-spin, but cap at 3 seconds to avoid blocking forever.
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
             loop {
                 let state = task.progress().state;
@@ -381,16 +442,12 @@ impl DownloadManager {
                     break;
                 }
                 if tokio::time::Instant::now() >= deadline {
-                    // Timeout: proceed anyway; the task will either finish soon
-                    // or its `AbortHandle` will be dropped when the old entry is
-                    // replaced, causing the underlying future to be cancelled.
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
         }
 
-        // Step 2: clear the task slot and let tick() schedule a fresh start.
         {
             let mut entries = self.entries.write().await;
             if let Some(entry) = entries.get_mut(&id) {
@@ -398,6 +455,40 @@ impl DownloadManager {
             }
         }
         self.tick().await;
+        Ok(())
+    }
+
+    /// Authoritative retry: allowed exclusively for Failed or Cancelled downloads.
+    pub async fn retry_task(&self, id: TaskId) -> Result<(), QueueActionError> {
+        let maybe_task = {
+            let entries = self.entries.read().await;
+            let entry = entries.get(&id).ok_or(QueueActionError::NotFound)?;
+            let state = entry
+                .task
+                .as_ref()
+                .map(|t| t.progress().state)
+                .unwrap_or(TaskState::Queued);
+            if state != TaskState::Failed && state != TaskState::Cancelled {
+                return Err(QueueActionError::InvalidState(format!(
+                    "Retry is only allowed for failed or cancelled downloads (current state: {:?})",
+                    state
+                )));
+            }
+            entry.task.clone()
+        };
+
+        if let Some(task) = maybe_task {
+            task.pause().await;
+        }
+
+        {
+            let mut entries = self.entries.write().await;
+            if let Some(entry) = entries.get_mut(&id) {
+                entry.task = None;
+            }
+        }
+        self.tick().await;
+        Ok(())
     }
 
     /// Pause all active downloads.

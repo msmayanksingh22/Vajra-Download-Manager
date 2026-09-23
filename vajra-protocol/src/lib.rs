@@ -112,6 +112,46 @@ pub struct InspectRequest {
     pub headers: std::collections::HashMap<String, String>,
 }
 
+/// POST /api/v1/downloads/bulk-action
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BulkActionRequest {
+    /// Specific download IDs to operate on.
+    #[serde(default)]
+    pub ids: Vec<Uuid>,
+    /// Action to perform.
+    pub action: BulkAction,
+    /// If true, applies to all downloads matching the action criteria.
+    #[serde(default)]
+    pub all: bool,
+    /// Whether to delete the physical file on disk (only applicable for Delete).
+    #[serde(default)]
+    pub delete_file: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BulkAction {
+    Pause,
+    Resume,
+    Retry,
+    Delete,
+    ClearCompleted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BulkActionResponse {
+    pub total: usize,
+    pub succeeded: Vec<Uuid>,
+    pub failed: Vec<BulkActionFailure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BulkActionFailure {
+    pub id: Uuid,
+    pub code: String,
+    pub message: String,
+}
+
 // ─── REST Response types ──────────────────────────────────────────────────────
 
 /// 201 response to POST /api/v1/downloads
@@ -140,6 +180,14 @@ pub struct DownloadInfo {
     pub connections_active: u8,
     pub segments: Vec<SegmentInfo>,
     pub hash_result: Option<HashResult>,
+    #[serde(default)]
+    pub expected_hash: Option<String>,
+    #[serde(default)]
+    pub actual_hash: Option<String>,
+    #[serde(default)]
+    pub hash_algorithm: Option<String>,
+    #[serde(default)]
+    pub resume_supported: bool,
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub completed_at: Option<i64>,

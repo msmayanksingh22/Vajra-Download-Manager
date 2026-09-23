@@ -36,7 +36,7 @@ pub mod ytdlp;
 
 pub use db::Database;
 pub use download_task::{DownloadError, DownloadRequest, DownloadTask, TaskState};
-pub use queue::{DownloadManager, DownloadManagerHandle};
+pub use queue::{DownloadManager, DownloadManagerHandle, QueueActionError};
 pub use state::DownloadState;
 pub use throttle::{CombinedThrottle, Throttle};
 pub mod torrent_task;

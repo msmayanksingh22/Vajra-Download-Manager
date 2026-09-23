@@ -489,4 +489,162 @@ async fn test_api_security_and_hardening_integration() {
         "Spider response must be an SSE stream, got: {}",
         content_type
     );
+
+    // 10. Bulk Action API test
+    // a) Rejection: batch size >500 submitted IDs before deduplication (400 Bad Request)
+    let ids_501: Vec<String> = (0..501).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+    let resp_501 = client
+        .post(format!("{}/api/v1/downloads/bulk-action", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "ids": ids_501,
+            "action": "pause"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_501.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    // b) Rejection: all: true combined with IDs (400 Bad Request)
+    let resp_all_and_ids = client
+        .post(format!("{}/api/v1/downloads/bulk-action", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "all": true,
+            "ids": [uuid::Uuid::new_v4().to_string()],
+            "action": "pause"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_all_and_ids.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    // c) Rejection: all: false with empty IDs (400 Bad Request)
+    let resp_empty = client
+        .post(format!("{}/api/v1/downloads/bulk-action", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "all": false,
+            "ids": [],
+            "action": "pause"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_empty.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    // d) Add real test download
+    let add_resp = client
+        .post(format!("{}/api/v1/downloads", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "url": "https://example.com/bulk_test_file.bin"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(add_resp.status(), reqwest::StatusCode::CREATED);
+    let add_json: serde_json::Value = add_resp.json().await.unwrap();
+    let download_id = add_json["id"].as_str().unwrap().to_string();
+
+    // e) Deduplication test: identical IDs in request produce 1 result
+    let dup_resp = client
+        .post(format!("{}/api/v1/downloads/bulk-action", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "ids": [download_id.clone(), download_id.clone()],
+            "action": "pause"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(dup_resp.status(), reqwest::StatusCode::OK);
+    let dup_json: serde_json::Value = dup_resp.json().await.unwrap();
+    assert_eq!(
+        dup_json["total"], 1,
+        "Duplicate IDs must be deduplicated to 1 item"
+    );
+
+    // f) Invalid retry test: retry on active/queued download is rejected with invalid_state
+    let retry_resp = client
+        .post(format!("{}/api/v1/downloads/bulk-action", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "ids": [download_id.clone()],
+            "action": "retry"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(retry_resp.status(), reqwest::StatusCode::OK);
+    let retry_json: serde_json::Value = retry_resp.json().await.unwrap();
+    assert_eq!(retry_json["failed"][0]["id"], download_id);
+    assert_eq!(retry_json["failed"][0]["code"], "invalid_state");
+
+    // g) Bulk resume by ID
+    let bulk_resume_resp = client
+        .post(format!("{}/api/v1/downloads/bulk-action", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "ids": [download_id.clone()],
+            "action": "resume"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bulk_resume_resp.status(), reqwest::StatusCode::OK);
+    let resume_json: serde_json::Value = bulk_resume_resp.json().await.unwrap();
+    assert_eq!(resume_json["total"], 1);
+
+    // h) Partial failure test: one valid ID and one non-existent ID
+    let fake_id = uuid::Uuid::new_v4().to_string();
+    let partial_resp = client
+        .post(format!("{}/api/v1/downloads/bulk-action", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "ids": [download_id.clone(), fake_id.clone()],
+            "action": "pause"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(partial_resp.status(), reqwest::StatusCode::OK);
+    let partial_json: serde_json::Value = partial_resp.json().await.unwrap();
+    assert_eq!(partial_json["total"], 2);
+    assert!(partial_json["failed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["id"] == fake_id && f["code"] == "not_found"));
+
+    // i) Bulk delete by ID
+    let bulk_del_resp = client
+        .post(format!("{}/api/v1/downloads/bulk-action", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "ids": [download_id.clone()],
+            "action": "delete",
+            "delete_file": false
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bulk_del_resp.status(), reqwest::StatusCode::OK);
+    let del_json: serde_json::Value = bulk_del_resp.json().await.unwrap();
+    assert_eq!(del_json["total"], 1);
+    assert_eq!(del_json["succeeded"][0], download_id);
+
+    // Verify post-deletion state: item is absent from GET /api/v1/downloads
+    let list_resp = client
+        .get(format!("{}/api/v1/downloads", base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .unwrap();
+    let list_json: serde_json::Value = list_resp.json().await.unwrap();
+    let items = list_json["items"].as_array().unwrap();
+    assert!(
+        !items.iter().any(|i| i["id"] == download_id),
+        "Deleted item must not exist in list"
+    );
 }
